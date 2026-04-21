@@ -1,28 +1,26 @@
 """Scraper connector shell."""
 
-# `AsyncClient` is the HTTP client used to fetch web pages.
-from backend.utils.optional_deps import AsyncClient
-# `BeautifulSoup` is the HTML parser used to inspect fetched pages.
-from backend.utils.optional_deps import BeautifulSoup
-
 # `BaseConnector` gives this connector a shared interface.
 from backend.connectors.base import BaseConnector
+from backend.schemas.ingestion import SourceKind
 
 
-# We keep scraping async because page fetches are network-bound.
 class ScraperConnector(BaseConnector):
-    """Connector shell for HTML scraping."""
+    """Connector for raw web page scraping."""
 
-    async def fetch_raw_records(self) -> list[dict]:
-        """Fetch source pages for later parsing."""
-        # TODO [CORE]: download the target pages and capture the raw HTML you care about.
-        async with AsyncClient() as client:
-            _ = client
-            return []
+    source_kind = SourceKind.SCRAPER
+    label = "Web Scraper"
+    description = "Downloads web pages and keeps the raw HTML for later parsing."
+    example_location = "https://example.com/about"
+    raw_shape_summary = "HTML pages plus simple page metadata"
 
-    async def normalize_records(self) -> list[dict]:
-        """Extract structured records from fetched HTML."""
-        # TODO [CORE]: pick selectors, parse fields, and map results into normalized records.
-        _ = BeautifulSoup("<html></html>", "html.parser")
-        return []
-
+    def get_preview_raw_records(self) -> list[dict]:
+        """Return a simple example of raw scraped page data."""
+        return [
+            {
+                "record_id": f"{self.source_config.source_id}-page-1",
+                "page_url": self.source_config.location,
+                "status_code": 200,
+                "html": "<html><body><h1>Example Company</h1><p>Contact hello@example.com</p></body></html>",
+            }
+        ]

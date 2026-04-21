@@ -1,25 +1,34 @@
 """API connector shell."""
 
-# `AsyncClient` is the HTTP client used for remote API calls.
-from backend.utils.optional_deps import AsyncClient
-
 # `BaseConnector` gives this connector a shared interface.
 from backend.connectors.base import BaseConnector
+from backend.schemas.ingestion import SourceKind
 
 
-# We keep API ingestion async because network work spends most of its time waiting.
 class APIConnector(BaseConnector):
-    """Connector shell for third-party APIs."""
+    """Connector for third-party APIs."""
 
-    async def fetch_raw_records(self) -> list[dict]:
-        """Fetch raw records from a remote API."""
-        # TODO [CORE]: handle auth, pagination, backoff, and response parsing.
-        async with AsyncClient() as client:
-            _ = client
-            return []
+    source_kind = SourceKind.API
+    label = "API"
+    description = "Pulls structured records from a remote API endpoint."
+    example_location = "https://api.shodan.io/shodan/host/search"
+    raw_shape_summary = "JSON payloads with nested fields"
 
-    async def normalize_records(self) -> list[dict]:
-        """Normalize raw API records into a shared shape."""
-        # TODO [CORE]: map API-specific payloads into your canonical entity/event schema.
-        return []
-
+    def get_preview_raw_records(self) -> list[dict]:
+        """Return a simple example of raw API output."""
+        return [
+            {
+                "record_id": f"{self.source_config.source_id}-response-1",
+                "endpoint": self.source_config.location,
+                "query": "example.com",
+                "response_body": {
+                    "matches": [
+                        {
+                            "ip": "203.0.113.10",
+                            "hostnames": ["portal.example.com"],
+                            "org": "Example Hosting",
+                        }
+                    ]
+                },
+            }
+        ]

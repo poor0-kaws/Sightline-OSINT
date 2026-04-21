@@ -5,20 +5,30 @@ from pathlib import Path
 
 # `BaseConnector` gives this connector a shared shape.
 from backend.connectors.base import BaseConnector
+from backend.schemas.ingestion import SourceKind
 
 
-# We still use the same connector class shape so every source plugs into one pipeline.
 class CSVConnector(BaseConnector):
-    """Connector shell for CSV files."""
+    """Connector for CSV file uploads."""
 
-    async def fetch_raw_records(self) -> list[dict]:
-        """Read rows from a CSV file."""
-        # TODO [CORE]: open the CSV file, validate headers, and read rows safely.
-        _ = Path(self.source_config.location)
-        return []
+    source_kind = SourceKind.CSV
+    label = "CSV Upload"
+    description = "Reads rows from a user-provided CSV file."
+    example_location = "/tmp/people.csv"
+    raw_shape_summary = "Flat rows with column names and values"
 
-    async def normalize_records(self) -> list[dict]:
-        """Normalize CSV rows into the shared record shape."""
-        # TODO [CORE]: decide which CSV columns map to which normalized fields.
-        return []
-
+    def get_preview_raw_records(self) -> list[dict]:
+        """Return a simple example of raw CSV rows."""
+        file_name = Path(self.source_config.location).name
+        return [
+            {
+                "record_id": f"{self.source_config.source_id}-row-1",
+                "file_name": file_name,
+                "row_number": 1,
+                "columns": {
+                    "name": "Maya Patel",
+                    "email": "maya@example.com",
+                    "company": "Northwind Labs",
+                },
+            }
+        ]

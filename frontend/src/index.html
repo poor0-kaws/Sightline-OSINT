@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SightlineOSINT Skeleton</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Skeleton</p>
+          <h1>SightlineOSINT</h1>
+        </div>
+        <button id="refresh-button" type="button">Refresh Stub Data</button>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar" id="sidebar-panel"></aside>
+
+        <section class="canvas-panel">
+          <div class="panel-header">
+            <h2>Investigation Canvas</h2>
+            <p>Static preview now. Real linking logic is yours.</p>
+          </div>
+          <div id="canvas-root" class="canvas-root"></div>
+        </section>
+
+        <section class="report-panel">
+          <div class="panel-header">
+            <h2>Report Preview</h2>
+            <p>Shows where summary output will appear.</p>
+          </div>
+          <div id="report-root" class="report-root"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
+

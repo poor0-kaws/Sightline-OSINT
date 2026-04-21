@@ -1,0 +1,21 @@
+# FastAPI gives you the web API layer.
+fastapi==0.115.12
+# Uvicorn is the simple ASGI server normally used with FastAPI.
+uvicorn==0.34.2
+# Celery is the background job runner.
+celery==5.4.0
+# Redis is the broker and cache option used by Celery here.
+redis==5.2.1
+# Neo4j is the graph database driver.
+neo4j==5.28.1
+# Dedupe is the library planned for entity matching.
+dedupe==3.0.2
+# HTTPX is the async HTTP client for API ingestion.
+httpx==0.28.1
+# Beautiful Soup is the HTML parser for scraper ingestion.
+beautifulsoup4==4.12.3
+# Pydantic defines request and response data shapes.
+pydantic==2.11.4
+# Pytest is here so the test shells have a standard runner.
+pytest==8.3.5
+

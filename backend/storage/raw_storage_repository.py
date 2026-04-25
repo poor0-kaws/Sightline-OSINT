@@ -236,5 +236,5 @@ def save_raw_response_safely(
     """Try to save a raw response without crashing the fetch path."""
     try:
         return save_raw_response(source_config=source_config, raw_response=raw_response)
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    except Exception:
         return None

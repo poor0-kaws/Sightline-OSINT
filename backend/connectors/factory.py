@@ -17,6 +17,7 @@ from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceRequest
+from backend.settings import get_settings
 from backend.utils.values import clean_int
 from backend.utils.values import clean_text
 
@@ -45,6 +46,7 @@ def _coerce_provider(provider: ProviderKind | str) -> ProviderKind:
 
 def build_default_source_config(provider: ProviderKind | str) -> SourceConfig:
     """Build a readable demo config for one provider."""
+    settings = get_settings()
     provider = _coerce_provider(provider)
     adapter_class = ADAPTER_BY_PROVIDER[provider]
     return SourceConfig(
@@ -53,12 +55,13 @@ def build_default_source_config(provider: ProviderKind | str) -> SourceConfig:
         provider=provider,
         location=adapter_class.example_location,
         display_name=adapter_class.label,
-        timeout_seconds=30,
+        timeout_seconds=settings.request_timeout_seconds,
     )
 
 
 def create_adapter(source_config: SourceConfig | object) -> BaseSourceAdapter:
     """Create the right adapter for one config-like object."""
+    settings = get_settings()
     provider = _coerce_provider(getattr(source_config, "provider", ""))
     adapter_class = ADAPTER_BY_PROVIDER[provider]
 
@@ -68,7 +71,10 @@ def create_adapter(source_config: SourceConfig | object) -> BaseSourceAdapter:
         provider=provider,
         location=clean_text(getattr(source_config, "location", "")),
         display_name=clean_text(getattr(source_config, "display_name", "")),
-        timeout_seconds=clean_int(getattr(source_config, "timeout_seconds", 30), default=30),
+        timeout_seconds=clean_int(
+            getattr(source_config, "timeout_seconds", settings.request_timeout_seconds),
+            default=settings.request_timeout_seconds,
+        ),
     )
     return adapter_class(safe_config)
 

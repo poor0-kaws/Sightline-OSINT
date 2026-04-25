@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from backend.settings import get_settings
+from backend.settings import get_validated_settings
 
 
 def build_startup_message() -> str:
     """Return a short summary of the current app state."""
-    settings = get_settings()
+    settings = get_validated_settings()
 
     return (
         f"{settings.app_name} is set up in {settings.app_env} mode. "

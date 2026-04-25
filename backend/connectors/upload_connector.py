@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.connectors.base import BaseSourceAdapter
+from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
@@ -28,10 +29,16 @@ class CSVUploadAdapter(BaseSourceAdapter):
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not isinstance(query, list):
-            return ProviderError(code="bad_query_type", message="CSV upload expects a list of row dictionaries.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="CSV upload expects a list of row dictionaries.",
+            )
 
         if not all(isinstance(row, dict) for row in query):
-            return ProviderError(code="bad_query_type", message="CSV upload rows must each be a dictionary.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="CSV upload rows must each be a dictionary.",
+            )
 
         return None
 
@@ -60,10 +67,16 @@ class ManualInputAdapter(BaseSourceAdapter):
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not isinstance(query, dict):
-            return ProviderError(code="bad_query_type", message="Manual input expects a dictionary of fields.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="Manual input expects a dictionary of fields.",
+            )
 
         if "note" not in query:
-            return ProviderError(code="missing_required_field", message="Manual input requires a note field.")
+            return ProviderError(
+                code=ErrorCode.MISSING_REQUIRED_FIELD.value,
+                message="Manual input requires a note field.",
+            )
 
         return None
 

@@ -1,0 +1,19 @@
+{
+  "error": {
+    "code": "unexpected_source_error",
+    "message": "adapter boom"
+  },
+  "fetched_at": "2026-04-25T22:27:07.003743+00:00",
+  "metadata": {
+    "exception_type": "RuntimeError",
+    "requested_provider": "ProviderKind.IPINFO"
+  },
+  "provider": "ipinfo",
+  "query": "8.8.8.8",
+  "raw_data": null,
+  "record_id": "61714ea7682c48aeb8b5ec7fa11b10f6",
+  "saved_at": "2026-04-25T22:27:07.003765+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

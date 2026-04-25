@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
+from backend.schemas.error_codes import ErrorCode
+from backend.settings import Settings
 from backend.settings import get_settings
+from backend.settings import get_validated_settings
+from backend.settings import validate_settings
 
 
 def test_settings_use_defaults_when_env_is_missing() -> None:
@@ -43,3 +49,31 @@ def test_settings_use_environment_overrides() -> None:
     assert settings.raw_storage_path == "tmp/raw"
     assert settings.neo4j_url == "bolt://graph.example:7687"
     assert settings.ipinfo_api_key == "secret-key"
+
+
+def test_validate_settings_rejects_non_positive_timeout() -> None:
+    """Startup validation should reject zero or negative timeouts."""
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        validate_settings(
+            Settings(
+                request_timeout_seconds=0,
+            )
+        )
+
+
+def test_validate_settings_rejects_blank_raw_storage_path() -> None:
+    """Startup validation should reject missing storage paths."""
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        validate_settings(
+            Settings(
+                raw_storage_path="   ",
+            )
+        )
+
+
+def test_get_validated_settings_rejects_invalid_environment_values() -> None:
+    """Validated settings should fail fast on impossible startup values."""
+    os.environ["REQUEST_TIMEOUT_SECONDS"] = "-5"
+
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        get_validated_settings()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.connectors.base import BaseSourceAdapter
+from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
@@ -28,13 +29,22 @@ class WebhookAdapter(BaseSourceAdapter):
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not isinstance(query, dict):
-            return ProviderError(code="bad_query_type", message="Webhook input must be a dictionary payload.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="Webhook input must be a dictionary payload.",
+            )
 
         if "event_type" not in query:
-            return ProviderError(code="missing_required_field", message="Webhook payload needs an event_type field.")
+            return ProviderError(
+                code=ErrorCode.MISSING_REQUIRED_FIELD.value,
+                message="Webhook payload needs an event_type field.",
+            )
 
         if "payload" not in query:
-            return ProviderError(code="missing_required_field", message="Webhook payload needs a payload field.")
+            return ProviderError(
+                code=ErrorCode.MISSING_REQUIRED_FIELD.value,
+                message="Webhook payload needs a payload field.",
+            )
 
         return None
 

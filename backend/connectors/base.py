@@ -7,6 +7,7 @@ from abc import abstractmethod
 from typing import Any
 
 from backend.schemas.ingestion import FetchStatus
+from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import ProviderDefinition
 from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
@@ -14,6 +15,7 @@ from backend.schemas.ingestion import QueryType
 from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceKind
+from backend.settings import get_settings
 from backend.utils.time import utc_now_iso
 from backend.utils.values import clean_int
 from backend.utils.values import clean_text
@@ -35,6 +37,7 @@ class BaseSourceAdapter(ABC):
 
     def _build_safe_source_config(self, source_config: SourceConfig) -> SourceConfig:
         """Fill in missing config values with readable defaults."""
+        settings = get_settings()
         source_id = clean_text(getattr(source_config, "source_id", ""))
         location = clean_text(getattr(source_config, "location", ""))
         display_name = clean_text(getattr(source_config, "display_name", ""))
@@ -48,7 +51,10 @@ class BaseSourceAdapter(ABC):
         if not display_name:
             display_name = self.label
 
-        timeout_seconds = clean_int(getattr(source_config, "timeout_seconds", 30), default=30)
+        timeout_seconds = clean_int(
+            getattr(source_config, "timeout_seconds", settings.request_timeout_seconds),
+            default=settings.request_timeout_seconds,
+        )
 
         return SourceConfig(
             source_id=source_id,
@@ -87,16 +93,28 @@ class BaseSourceAdapter(ABC):
     def validate_query(self, query: Any) -> ProviderError | None:
         """Reject obviously unusable input before calling the provider."""
         if query is None:
-            return ProviderError(code="empty_query", message="This provider needs a query or input payload.")
+            return ProviderError(
+                code=ErrorCode.EMPTY_QUERY.value,
+                message="This provider needs a query or input payload.",
+            )
 
         if isinstance(query, str) and not query.strip():
-            return ProviderError(code="empty_query", message="This provider needs a query or input payload.")
+            return ProviderError(
+                code=ErrorCode.EMPTY_QUERY.value,
+                message="This provider needs a query or input payload.",
+            )
 
         if isinstance(query, dict) and not query:
-            return ProviderError(code="empty_query", message="This provider needs a query or input payload.")
+            return ProviderError(
+                code=ErrorCode.EMPTY_QUERY.value,
+                message="This provider needs a query or input payload.",
+            )
 
         if isinstance(query, list) and not query:
-            return ProviderError(code="empty_query", message="This provider needs a query or input payload.")
+            return ProviderError(
+                code=ErrorCode.EMPTY_QUERY.value,
+                message="This provider needs a query or input payload.",
+            )
 
         return self.validate_provider_query(query)
 

@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": "provider_http_error",
+    "message": "HTTP request failed with status 429."
+  },
+  "fetched_at": "2026-04-25T22:26:04.172239+00:00",
+  "metadata": {
+    "mode": "live",
+    "provider": "ipinfo",
+    "response_code": 429
+  },
+  "provider": "ipinfo",
+  "query": "8.8.8.8",
+  "raw_data": null,
+  "record_id": "278950ce5cbf471e9593227b134ca88f",
+  "saved_at": "2026-04-25T22:26:04.172254+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

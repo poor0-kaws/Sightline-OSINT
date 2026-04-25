@@ -1,0 +1,19 @@
+{
+  "error": {
+    "code": "invalid_provider_response",
+    "message": "Source adapter returned an invalid response shape."
+  },
+  "fetched_at": "2026-04-25T22:26:13.584854+00:00",
+  "metadata": {
+    "requested_provider": "ProviderKind.IPINFO",
+    "returned_type": "dict"
+  },
+  "provider": "ipinfo",
+  "query": "8.8.8.8",
+  "raw_data": null,
+  "record_id": "814a549f9aa34d10a676e77924e6d23c",
+  "saved_at": "2026-04-25T22:26:13.584874+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

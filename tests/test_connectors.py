@@ -4,8 +4,10 @@ import math
 
 import pytest
 
+import backend.connectors.api_connector as api_connector_module
 from backend.connectors import build_preview_response
 from backend.connectors import create_adapter
+from backend.connectors import build_default_source_config
 from backend.connectors import list_provider_definitions
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderKind
@@ -13,6 +15,8 @@ from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceRequest
 from backend.schemas.ingestion import SourceKind
 from backend.services.ingestion_service import IngestionService
+from backend.utils.http_client import HTTPClientError
+from backend.utils.http_client import JSONResponse
 
 
 def test_provider_catalog_matches_architecture_note() -> None:
@@ -211,6 +215,35 @@ def test_plain_config_with_none_fields_gets_safe_defaults() -> None:
     assert adapter.source_config.display_name == "CSV Upload"
 
 
+def test_build_default_source_config_uses_timeout_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default source configs should inherit the app timeout setting."""
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "45")
+
+    source_config = build_default_source_config(ProviderKind.IPINFO)
+
+    assert source_config.timeout_seconds == 45
+
+
+def test_create_adapter_uses_timeout_from_settings_when_config_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Adapters should fall back to the settings timeout when config is blank."""
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "55")
+
+    class PartialConfig:
+        source_id = "ipinfo-source"
+        provider = "ipinfo"
+        location = ""
+        display_name = ""
+        timeout_seconds = None
+
+    adapter = create_adapter(PartialConfig())
+
+    assert adapter.source_config.timeout_seconds == 55
+
+
 def test_preview_response_uses_provider_example_query() -> None:
     """Preview responses should be real examples, not empty placeholders."""
     response = build_preview_response(ProviderKind.NOMINATIM)
@@ -318,3 +351,72 @@ def test_run_source_request_returns_clean_error_for_malformed_queries(
 
     assert response.status == FetchStatus.ERROR
     assert response.error is not None
+
+
+def test_ipinfo_uses_live_http_path_when_api_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IPinfo should use the HTTP helper when a live key is present."""
+    monkeypatch.setenv("IPINFO_API_KEY", "secret-key")
+
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data={
+                "ip": "8.8.8.8",
+                "city": "Mountain View",
+                "region": "California",
+                "country": "US",
+                "org": "AS15169 Google LLC",
+            },
+            url="https://ipinfo.io/8.8.8.8/json?token=secret-key",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.IPINFO, timeout_seconds=11),
+            query="8.8.8.8",
+        )
+    )
+
+    assert captured_call["url"] == "https://ipinfo.io/8.8.8.8/json"
+    assert captured_call["params"] == {"token": "secret-key"}
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 11
+    assert response.status == FetchStatus.SUCCESS
+    assert response.raw_data["ip"] == "8.8.8.8"
+    assert response.metadata["mode"] == "live"
+
+
+def test_ipinfo_returns_clean_error_when_http_helper_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live IPinfo failures should come back as provider errors, not crashes."""
+    monkeypatch.setenv("IPINFO_API_KEY", "secret-key")
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("HTTP request failed with status 429.", status_code=429)
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.IPINFO),
+            query="8.8.8.8",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_http_error"
+    assert response.metadata["response_code"] == 429

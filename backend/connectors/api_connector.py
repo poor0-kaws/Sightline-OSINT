@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from backend.connectors.base import BaseSourceAdapter
+from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import QueryType
 from backend.schemas.ingestion import SourceKind
+from backend.settings import get_settings
+from backend.utils.http_client import get_json
+from backend.utils.http_client import HTTPClientError
 from backend.utils.validation import has_valid_bounding_box
 from backend.utils.validation import has_valid_coordinates
 from backend.utils.validation import is_valid_aircraft_id
@@ -31,11 +36,70 @@ class IPinfoAdapter(BaseSourceAdapter):
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not is_valid_ipv4_address(query):
-            return ProviderError(code="bad_query_type", message="IPinfo expects a string IP address.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="IPinfo expects a string IP address.",
+            )
 
         return None
 
     def fetch_raw_data(self, query: Any) -> dict[str, Any]:
+        settings = get_settings()
+        if not settings.ipinfo_api_key:
+            return self._build_demo_result(query)
+
+        request_url = f"{self.source_config.location.rstrip('/')}/{quote(str(query))}/json"
+
+        try:
+            response = get_json(
+                request_url,
+                params={"token": settings.ipinfo_api_key},
+                headers={"Accept": "application/json"},
+                timeout_seconds=self.source_config.timeout_seconds,
+            )
+        except HTTPClientError as error:
+            return {
+                "status": FetchStatus.ERROR,
+                "raw_data": None,
+                "error": ProviderError(
+                    code="provider_http_error",
+                    message=str(error),
+                ),
+                "metadata": {
+                    "provider": "ipinfo",
+                    "mode": "live",
+                    "response_code": error.status_code or 0,
+                },
+            }
+
+        if not isinstance(response.data, dict):
+            return {
+                "status": FetchStatus.ERROR,
+                "raw_data": None,
+                "error": ProviderError(
+                    code="provider_bad_response",
+                    message="IPinfo returned a non-object JSON payload.",
+                ),
+                "metadata": {
+                    "provider": "ipinfo",
+                    "mode": "live",
+                    "response_code": response.status_code,
+                },
+            }
+
+        return {
+            "status": FetchStatus.SUCCESS,
+            "raw_data": response.data,
+            "metadata": {
+                "response_code": response.status_code,
+                "provider": "ipinfo",
+                "mode": "live",
+                "request_url": response.url,
+            },
+        }
+
+    def _build_demo_result(self, query: Any) -> dict[str, Any]:
+        """Return a readable fallback result when no live key is configured."""
         return {
             "status": FetchStatus.SUCCESS,
             "raw_data": {
@@ -45,7 +109,11 @@ class IPinfoAdapter(BaseSourceAdapter):
                 "country": "US",
                 "org": "AS15169 Google LLC",
             },
-            "metadata": {"response_code": 200, "provider": "ipinfo"},
+            "metadata": {
+                "response_code": 200,
+                "provider": "ipinfo",
+                "mode": "demo",
+            },
         }
 
 
@@ -62,7 +130,10 @@ class CrtShAdapter(BaseSourceAdapter):
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not is_valid_domain_name(query):
-            return ProviderError(code="bad_query_type", message="crt.sh expects a domain like example.com.")
+            return ProviderError(
+                code=ErrorCode.BAD_QUERY_TYPE.value,
+                message="crt.sh expects a domain like example.com.",
+            )
 
         return None
 
@@ -99,7 +170,7 @@ class OpenSkyAdapter(BaseSourceAdapter):
             return None
 
         return ProviderError(
-            code="bad_query_type",
+            code=ErrorCode.BAD_QUERY_TYPE.value,
             message="OpenSky expects an aircraft id string or a bounding box with lamin, lamax, lomin, lomax.",
         )
 
@@ -144,7 +215,7 @@ class NominatimAdapter(BaseSourceAdapter):
             return None
 
         return ProviderError(
-            code="bad_query_type",
+            code=ErrorCode.BAD_QUERY_TYPE.value,
             message="Nominatim expects a place name string or coordinates with lat and lon.",
         )
 

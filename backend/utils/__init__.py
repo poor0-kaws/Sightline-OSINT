@@ -1,2 +1,1 @@
-"""Utility helpers for the scaffold."""
-
+"""Utility package for small shared helpers."""

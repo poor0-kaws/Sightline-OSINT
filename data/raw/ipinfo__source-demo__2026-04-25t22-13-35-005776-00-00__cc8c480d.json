@@ -1,0 +1,22 @@
+{
+  "error": null,
+  "fetched_at": "2026-04-25T22:13:35.005776+00:00",
+  "metadata": {
+    "provider": "ipinfo",
+    "response_code": 200
+  },
+  "provider": "ipinfo",
+  "query": "8.8.8.8",
+  "raw_data": {
+    "city": "Mountain View",
+    "country": "US",
+    "ip": "8.8.8.8",
+    "org": "AS15169 Google LLC",
+    "region": "California"
+  },
+  "record_id": "cc8c480d443b47b39d63cb3339905deb",
+  "saved_at": "2026-04-25T22:13:35.005884+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "success"
+}

@@ -1,2 +1,1 @@
-"""Schema package for shared data shapes."""
-
+"""Schema package for source-layer models."""

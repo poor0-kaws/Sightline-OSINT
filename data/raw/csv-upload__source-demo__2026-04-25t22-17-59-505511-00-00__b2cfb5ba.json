@@ -1,0 +1,34 @@
+{
+  "error": null,
+  "fetched_at": "2026-04-25T22:17:59.505511+00:00",
+  "metadata": {
+    "location": "upload://case-import.csv",
+    "row_count": 2
+  },
+  "provider": "csv_upload",
+  "query": [
+    {
+      "email": "maya@example.com",
+      "name": "Maya Patel"
+    },
+    {
+      "email": "omar@example.com",
+      "name": "Omar Ruiz"
+    }
+  ],
+  "raw_data": [
+    {
+      "email": "maya@example.com",
+      "name": "Maya Patel"
+    },
+    {
+      "email": "omar@example.com",
+      "name": "Omar Ruiz"
+    }
+  ],
+  "record_id": "b2cfb5baa18e43019ad3e563f2b2b543",
+  "saved_at": "2026-04-25T22:17:59.505529+00:00",
+  "source_id": "source-demo",
+  "source_type": "csv",
+  "status": "success"
+}

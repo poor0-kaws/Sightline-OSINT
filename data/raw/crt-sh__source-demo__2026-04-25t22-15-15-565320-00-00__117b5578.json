@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": "bad_query_type",
+    "message": "crt.sh expects a domain like example.com."
+  },
+  "fetched_at": "2026-04-25T22:15:15.565320+00:00",
+  "metadata": {
+    "location": "https://crt.sh"
+  },
+  "provider": "crt.sh",
+  "query": [
+    "example.com"
+  ],
+  "raw_data": null,
+  "record_id": "117b557868274e81b298be5a147c6817",
+  "saved_at": "2026-04-25T22:15:15.565477+00:00",
+  "source_id": "source-demo",
+  "source_type": "scraper",
+  "status": "error"
+}

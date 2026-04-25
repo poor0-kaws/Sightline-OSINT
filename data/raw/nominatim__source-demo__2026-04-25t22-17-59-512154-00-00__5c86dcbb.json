@@ -1,0 +1,18 @@
+{
+  "error": {
+    "code": "empty_query",
+    "message": "This provider needs a query or input payload."
+  },
+  "fetched_at": "2026-04-25T22:17:59.512154+00:00",
+  "metadata": {
+    "location": "https://nominatim.openstreetmap.org"
+  },
+  "provider": "nominatim",
+  "query": [],
+  "raw_data": null,
+  "record_id": "5c86dcbbfcf343ccabbde64ab24b005e",
+  "saved_at": "2026-04-25T22:17:59.512172+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

@@ -1,0 +1,8 @@
+{
+  "error": null,
+  "fetched_at": "2026-04-25T12:35:00+00:00",
+  "metadata": {},
+  "provider": "ipinfo",
+  "query": "8.8.8.8",
+  "raw_data": {
+    "bad": 

@@ -1,11 +1,13 @@
-"""Connector package for source-specific ingestion stubs."""
+"""Source adapters for the data source architecture layer."""
 
-from backend.connectors.factory import build_source_preview
-from backend.connectors.factory import create_connector
-from backend.connectors.factory import list_source_definitions
+from backend.connectors.factory import build_preview_response
+from backend.connectors.factory import create_adapter
+from backend.connectors.factory import list_provider_definitions
+from backend.connectors.factory import run_source_request
 
 __all__ = [
-    "build_source_preview",
-    "create_connector",
-    "list_source_definitions",
+    "build_preview_response",
+    "create_adapter",
+    "list_provider_definitions",
+    "run_source_request",
 ]

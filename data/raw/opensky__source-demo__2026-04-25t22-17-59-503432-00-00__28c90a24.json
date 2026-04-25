@@ -1,0 +1,37 @@
+{
+  "error": null,
+  "fetched_at": "2026-04-25T22:17:59.503432+00:00",
+  "metadata": {
+    "note": "partial_success used for sampled state vectors",
+    "response_code": 206
+  },
+  "provider": "opensky",
+  "query": {
+    "lamax": 40.0,
+    "lamin": 39.0,
+    "lomax": -86.0,
+    "lomin": -87.0
+  },
+  "raw_data": {
+    "bounds": {
+      "lamax": 40.0,
+      "lamin": 39.0,
+      "lomax": -86.0,
+      "lomin": -87.0
+    },
+    "states": [
+      [
+        "abc123",
+        "AAL123",
+        -86.1,
+        39.8,
+        11200
+      ]
+    ]
+  },
+  "record_id": "28c90a24bad2460983acb3876cd0cd50",
+  "saved_at": "2026-04-25T22:17:59.503452+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "partial_success"
+}

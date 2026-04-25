@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": "missing_required_field",
+    "message": "Manual input requires a note field."
+  },
+  "fetched_at": "2026-04-25T22:15:15.560516+00:00",
+  "metadata": {
+    "location": "manual://analyst-note"
+  },
+  "provider": "manual_input",
+  "query": {
+    "person_name": "Maya Patel"
+  },
+  "raw_data": null,
+  "record_id": "2cd77ca2b0784389a8f5a235f52474c4",
+  "saved_at": "2026-04-25T22:15:15.560542+00:00",
+  "source_id": "source-demo",
+  "source_type": "manual",
+  "status": "error"
+}

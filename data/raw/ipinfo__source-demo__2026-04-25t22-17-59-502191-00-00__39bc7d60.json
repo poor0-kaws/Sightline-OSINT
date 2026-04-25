@@ -1,0 +1,18 @@
+{
+  "error": {
+    "code": "bad_query_type",
+    "message": "IPinfo expects a string IP address."
+  },
+  "fetched_at": "2026-04-25T22:17:59.502191+00:00",
+  "metadata": {
+    "location": "https://ipinfo.io"
+  },
+  "provider": "ipinfo",
+  "query": "999.1.1.1",
+  "raw_data": null,
+  "record_id": "39bc7d60930d4297b3c4da9054b3908e",
+  "saved_at": "2026-04-25T22:17:59.502215+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

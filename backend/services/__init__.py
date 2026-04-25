@@ -1,2 +1,1 @@
-"""Service package for orchestration code."""
-
+"""Service package for the source-layer code."""

@@ -1,29 +1,46 @@
-"""Webhook connector shell."""
+"""Webhook source adapter."""
 
-# `BaseConnector` gives this connector a shared interface.
-from backend.connectors.base import BaseConnector
+from __future__ import annotations
+
+from typing import Any
+
+from backend.connectors.base import BaseSourceAdapter
+from backend.schemas.ingestion import FetchStatus
+from backend.schemas.ingestion import ProviderError
+from backend.schemas.ingestion import ProviderKind
+from backend.schemas.ingestion import QueryType
 from backend.schemas.ingestion import SourceKind
 
 
-class WebhookConnector(BaseConnector):
-    """Connector for webhook-delivered payloads."""
+class WebhookAdapter(BaseSourceAdapter):
+    """Adapter for inbound webhook payloads."""
 
+    provider = ProviderKind.WEBHOOK
     source_kind = SourceKind.WEBHOOK
     label = "Webhook"
-    description = "Accepts push-based payloads sent into the platform."
+    description = "Accepts raw webhook payloads exactly as they are received."
+    accepted_query_types = [QueryType.PAYLOAD_BODY]
+    example_query = {
+        "event_type": "breach.alert",
+        "payload": {"email": "maya@example.com", "domain": "example.com"},
+    }
     example_location = "webhook://intel-feed/high-priority"
-    raw_shape_summary = "Event payloads with metadata and nested bodies"
 
-    def get_preview_raw_records(self) -> list[dict]:
-        """Return a simple example of raw webhook events."""
-        return [
-            {
-                "record_id": f"{self.source_config.source_id}-event-1",
-                "event_type": "breach.alert",
-                "delivered_at": "2026-04-21T12:00:00Z",
-                "payload": {
-                    "email": "maya@example.com",
-                    "domain": "example.com",
-                },
-            }
-        ]
+    def validate_provider_query(self, query: Any) -> ProviderError | None:
+        if not isinstance(query, dict):
+            return ProviderError(code="bad_query_type", message="Webhook input must be a dictionary payload.")
+
+        if "event_type" not in query:
+            return ProviderError(code="missing_required_field", message="Webhook payload needs an event_type field.")
+
+        if "payload" not in query:
+            return ProviderError(code="missing_required_field", message="Webhook payload needs a payload field.")
+
+        return None
+
+    def fetch_raw_data(self, query: Any) -> dict[str, Any]:
+        return {
+            "status": FetchStatus.SUCCESS,
+            "raw_data": query,
+            "metadata": {"delivery_mode": "push", "location": self.source_config.location},
+        }

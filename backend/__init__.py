@@ -1,2 +1,1 @@
-"""Backend package for the SightlineOSINT scaffold."""
-
+"""Backend package for SightlineOSINT."""

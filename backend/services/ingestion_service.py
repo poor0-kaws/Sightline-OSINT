@@ -1,37 +1,31 @@
-"""Service layer for ingestion workflows."""
+"""Service layer for the data source architecture section."""
 
-# `build_source_preview` returns an example raw payload for a source kind.
-from backend.connectors import build_source_preview
-# `list_source_definitions` returns human-friendly source metadata.
-from backend.connectors import list_source_definitions
-# `SourceKind` lets us choose the right connector family.
-from backend.schemas.ingestion import SourceKind
-# `IngestionJobCreate` describes the request to schedule a job.
-from backend.schemas.ingestion import IngestionJobCreate
-# `IngestionJobStatus` is the response shape for queued jobs.
-from backend.schemas.ingestion import IngestionJobStatus
-from backend.schemas.ingestion import SourceDefinition
-from backend.schemas.ingestion import SourcePreview
+from backend.connectors import build_preview_response
+from backend.connectors import list_provider_definitions
+from backend.connectors import run_source_request
+from backend.schemas.ingestion import ProviderDefinition
+from backend.schemas.ingestion import ProviderKind
+from backend.schemas.ingestion import RawProviderResponse
+from backend.schemas.ingestion import SourceRequest
+from backend.storage import save_raw_response_safely
 
 
-# We use a service class so routes stay thin and the workflow has one home.
 class IngestionService:
-    """Orchestrates source selection and ingestion job setup."""
+    """Owns the source-adapter layer."""
 
-    def list_supported_source_types(self) -> list[str]:
-        """Return the connector kinds the scaffold knows about."""
-        return [kind.value for kind in SourceKind]
+    def list_supported_providers(self) -> list[ProviderDefinition]:
+        """Return the providers from the architecture note."""
+        return list_provider_definitions()
 
-    def list_supported_sources(self) -> list[SourceDefinition]:
-        """Return plain-English descriptions of the supported sources."""
-        return list_source_definitions()
+    def preview_provider_response(self, provider: ProviderKind | str) -> RawProviderResponse:
+        """Return a sample raw wrapper for one provider."""
+        return build_preview_response(provider)
 
-    def schedule_ingestion(self, job_request: IngestionJobCreate) -> IngestionJobStatus:
-        """Create a placeholder ingestion job."""
-        _ = job_request
-        # TODO [OPTIONAL]: hand work to Celery once the worker path is real.
-        return IngestionJobStatus()
-
-    def preview_payload_shape(self, source_kind: SourceKind) -> SourcePreview:
-        """Return a tiny preview of the raw records one source type can emit."""
-        return build_source_preview(source_kind)
+    def run_source_request(self, source_request: SourceRequest) -> RawProviderResponse:
+        """Run one source request, then try to save the raw response."""
+        response = run_source_request(source_request)
+        save_raw_response_safely(
+            source_config=source_request.source,
+            raw_response=response,
+        )
+        return response

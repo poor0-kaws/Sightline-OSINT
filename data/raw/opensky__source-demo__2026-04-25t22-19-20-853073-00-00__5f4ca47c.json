@@ -1,0 +1,18 @@
+{
+  "error": {
+    "code": "bad_query_type",
+    "message": "OpenSky expects an aircraft id string or a bounding box with lamin, lamax, lomin, lomax."
+  },
+  "fetched_at": "2026-04-25T22:19:20.853073+00:00",
+  "metadata": {
+    "location": "https://opensky-network.org"
+  },
+  "provider": "opensky",
+  "query": "AAL 123",
+  "raw_data": null,
+  "record_id": "5f4ca47c24d64f798147e389b0c986e8",
+  "saved_at": "2026-04-25T22:19:20.853092+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

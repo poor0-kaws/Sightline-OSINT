@@ -1,0 +1,22 @@
+{
+  "error": {
+    "code": "missing_required_field",
+    "message": "Webhook payload needs an event_type field."
+  },
+  "fetched_at": "2026-04-25T22:12:14.757001+00:00",
+  "metadata": {
+    "location": "webhook://intel-feed/high-priority"
+  },
+  "provider": "webhook",
+  "query": {
+    "payload": {
+      "email": "maya@example.com"
+    }
+  },
+  "raw_data": null,
+  "record_id": "278a6dc1b2f442908393bc78c397c50f",
+  "saved_at": "2026-04-25T22:12:14.757017+00:00",
+  "source_id": "source-demo",
+  "source_type": "webhook",
+  "status": "error"
+}

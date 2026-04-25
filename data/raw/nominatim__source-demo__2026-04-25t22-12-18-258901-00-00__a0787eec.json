@@ -1,0 +1,21 @@
+{
+  "error": {
+    "code": "bad_query_type",
+    "message": "Nominatim expects a place name string or coordinates with lat and lon."
+  },
+  "fetched_at": "2026-04-25T22:12:18.258901+00:00",
+  "metadata": {
+    "location": "https://nominatim.openstreetmap.org"
+  },
+  "provider": "nominatim",
+  "query": {
+    "lat": 120,
+    "lon": -86.1
+  },
+  "raw_data": null,
+  "record_id": "a0787eeca44e4202afefc82d1d834ea1",
+  "saved_at": "2026-04-25T22:12:18.258919+00:00",
+  "source_id": "source-demo",
+  "source_type": "api",
+  "status": "error"
+}

@@ -1,0 +1,18 @@
+{
+  "error": {
+    "code": "empty_query",
+    "message": "This provider needs a query or input payload."
+  },
+  "fetched_at": "2026-04-25T22:15:15.556875+00:00",
+  "metadata": {
+    "location": "https://crt.sh"
+  },
+  "provider": "crt.sh",
+  "query": "   ",
+  "raw_data": null,
+  "record_id": "c8465835de3a4cbfb0d1d1e0f40c6b2e",
+  "saved_at": "2026-04-25T22:15:15.556896+00:00",
+  "source_id": "source-demo",
+  "source_type": "scraper",
+  "status": "error"
+}

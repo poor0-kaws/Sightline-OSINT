@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from urllib.error import HTTPError
+from urllib.error import URLError
 
 import pytest
 
+from backend.utils.http_client import _build_url
 from backend.utils.http_client import get_json
 from backend.utils.http_client import HTTPClientError
 
@@ -28,6 +30,26 @@ class FakeHTTPResponse:
 
     def getcode(self) -> int:
         return self.status_code
+
+
+def test_build_url_appends_query_params_to_existing_query_string() -> None:
+    """The URL builder should append params without breaking existing queries."""
+    built_url = _build_url(
+        "https://example.com/data?existing=yes",
+        params={"token": "secret-key"},
+    )
+
+    assert built_url == "https://example.com/data?existing=yes&token=secret-key"
+
+
+def test_build_url_supports_list_query_values() -> None:
+    """The URL builder should expand list params in query strings."""
+    built_url = _build_url(
+        "https://example.com/data",
+        params={"tag": ["one", "two"]},
+    )
+
+    assert built_url == "https://example.com/data?tag=one&tag=two"
 
 
 def test_get_json_builds_url_and_parses_json() -> None:
@@ -71,6 +93,32 @@ def test_get_json_raises_clean_error_for_http_failures() -> None:
         get_json("https://example.com/data", opener=fake_opener)
 
     assert error.value.status_code == 429
+
+
+def test_get_json_raises_clean_error_for_network_failures() -> None:
+    """Connection failures should become readable client errors."""
+
+    def fake_opener(request, timeout):
+        raise URLError("host unreachable")
+
+    with pytest.raises(HTTPClientError) as error:
+        get_json("https://example.com/data", opener=fake_opener)
+
+    assert error.value.status_code is None
+    assert "host unreachable" in str(error.value)
+
+
+def test_get_json_raises_clean_error_for_timeouts() -> None:
+    """Timeout failures should become readable timeout errors."""
+
+    def fake_opener(request, timeout):
+        raise TimeoutError("request timed out")
+
+    with pytest.raises(HTTPClientError) as error:
+        get_json("https://example.com/data", opener=fake_opener)
+
+    assert error.value.status_code is None
+    assert "timed out" in str(error.value)
 
 
 def test_get_json_raises_clean_error_for_invalid_json() -> None:

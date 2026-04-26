@@ -105,8 +105,8 @@ def test_opensky_accepts_bounding_box_queries() -> None:
         )
     )
 
-    assert response.status == FetchStatus.PARTIAL_SUCCESS
-    assert response.raw_data["bounds"]["lamin"] == 39.0
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
 
 
 def test_opensky_rejects_bounding_box_with_reversed_latitude_range() -> None:
@@ -149,6 +149,16 @@ def test_opensky_rejects_aircraft_id_with_spaces() -> None:
 
     assert response.status == FetchStatus.ERROR
     assert response.error.code == "bad_query_type"
+
+
+def test_opensky_preview_response_uses_stable_example_data() -> None:
+    """OpenSky previews should stay readable without hitting the network."""
+    response = build_preview_response(ProviderKind.OPENSKY)
+
+    assert response.provider == ProviderKind.OPENSKY
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "preview"
+    assert response.raw_data["states"][0][1] == "AAL123"
 
 
 def test_webhook_missing_required_fields_returns_clear_error() -> None:
@@ -695,3 +705,189 @@ def test_crt_sh_returns_clean_error_for_wrong_live_response_shape(
     assert response.error is not None
     assert response.error.code == "provider_bad_response"
     assert response.metadata["mode"] == "search"
+
+
+def test_opensky_uses_live_aircraft_http_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenSky aircraft lookups should use the live states endpoint."""
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data={
+                "time": 1_777_090_400,
+                "states": [
+                    [
+                        "abc123",
+                        "AAL123",
+                        "United States",
+                        None,
+                        None,
+                        -86.1581,
+                        39.7684,
+                        11200.0,
+                    ]
+                ],
+            },
+            url="https://opensky-network.org/api/states/all?icao24=aal123",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.OPENSKY, timeout_seconds=15),
+            query="AAL123",
+        )
+    )
+
+    assert captured_call["url"] == "https://opensky-network.org/api/states/all"
+    assert captured_call["params"] == {"icao24": "aal123"}
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 15
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "aircraft"
+    assert response.metadata["state_count"] == 1
+    assert response.raw_data["states"][0][0] == "abc123"
+
+
+def test_opensky_uses_live_bounds_http_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenSky bounding-box lookups should use the live states endpoint with bounds."""
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data={
+                "time": 1_777_090_400,
+                "states": [
+                    [
+                        "abc123",
+                        "AAL123",
+                        "United States",
+                        None,
+                        None,
+                        -86.1581,
+                        39.7684,
+                        11200.0,
+                    ]
+                ],
+            },
+            url="https://opensky-network.org/api/states/all?lamin=39.0&lamax=40.0&lomin=-87.0&lomax=-86.0",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.OPENSKY, timeout_seconds=16),
+            query={"lamin": 39.0, "lamax": 40.0, "lomin": -87.0, "lomax": -86.0},
+        )
+    )
+
+    assert captured_call["url"] == "https://opensky-network.org/api/states/all"
+    assert captured_call["params"] == {
+        "lamin": 39.0,
+        "lamax": 40.0,
+        "lomin": -87.0,
+        "lomax": -86.0,
+    }
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 16
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "bounds"
+    assert response.metadata["state_count"] == 1
+    assert response.raw_data["states"][0][1] == "AAL123"
+
+
+def test_opensky_returns_no_results_for_empty_live_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenSky should surface an empty states list as no_results."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data={"time": 1_777_090_400, "states": []},
+            url="https://opensky-network.org/api/states/all?icao24=aal123",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.OPENSKY),
+            query="AAL123",
+        )
+    )
+
+    assert response.status == FetchStatus.NO_RESULTS
+    assert response.error is None
+    assert response.metadata["state_count"] == 0
+
+
+def test_opensky_returns_clean_timeout_error_when_http_helper_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live OpenSky failures should return shared timeout errors, not crash."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("Network request timed out.", failure_kind="timeout")
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.OPENSKY),
+            query="AAL123",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_timeout"
+    assert response.metadata["mode"] == "aircraft"
+
+
+def test_opensky_returns_clean_error_for_wrong_live_response_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live OpenSky should reject valid JSON that has the wrong top-level shape."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data={"time": 1_777_090_400, "states": "not-a-list"},
+            url="https://opensky-network.org/api/states/all?icao24=aal123",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.OPENSKY),
+            query="AAL123",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_bad_response"
+    assert response.metadata["mode"] == "aircraft"

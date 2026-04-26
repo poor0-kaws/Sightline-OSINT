@@ -102,3 +102,78 @@ def test_processing_pipeline_runs_fetch_save_and_normalize_for_crt_sh(
     assert normalized_record.raw_record_id != ""
     assert normalized_record.status.value == "success"
     assert normalized_record.normalized_data["certificates"][0]["common_name"] == "example.com"
+
+
+def test_processing_pipeline_runs_fetch_save_and_normalize_for_opensky_aircraft(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared pipeline should save OpenSky raw aircraft data before normalizing it."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data={
+                "time": 1_777_090_400,
+                "states": [
+                    [
+                        "abc123",
+                        "AAL123",
+                        "United States",
+                        None,
+                        None,
+                        -86.1581,
+                        39.7684,
+                        11200.0,
+                    ]
+                ],
+            },
+            url="https://opensky-network.org/api/states/all?icao24=aal123",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-4",
+                provider=ProviderKind.OPENSKY,
+            ),
+            query="AAL123",
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "success"
+    assert normalized_record.normalized_data["aircraft"]["icao24"] == "abc123"
+
+
+def test_processing_pipeline_returns_normalized_error_for_opensky_live_failure(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenSky fetch failures should still save raw errors and normalize them cleanly."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("Network request timed out.", failure_kind="timeout")
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-5",
+                provider=ProviderKind.OPENSKY,
+            ),
+            query="AAL123",
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "error"
+    assert normalized_record.error.code == ErrorCode.PROVIDER_TIMEOUT.value
+    assert normalized_record.normalized_data is None

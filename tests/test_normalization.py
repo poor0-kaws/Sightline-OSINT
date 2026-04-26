@@ -94,6 +94,174 @@ def test_nominatim_reverse_saved_record_normalizes_into_shared_shape() -> None:
     assert normalized_record.normalized_data["place"]["longitude"] == -86.1581
 
 
+def test_opensky_aircraft_saved_record_normalizes_into_shared_shape() -> None:
+    """OpenSky aircraft records should normalize into one aircraft object."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-1",
+        source_id="source-open-1",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query="AAL123",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={
+            "time": 1_777_090_400,
+            "states": [
+                [
+                    "abc123",
+                    "AAL123",
+                    "United States",
+                    None,
+                    None,
+                    -86.1581,
+                    39.7684,
+                    11200.0,
+                ]
+            ],
+        },
+        metadata={"mode": "aircraft", "state_count": 1},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["aircraft"]["icao24"] == "abc123"
+    assert normalized_record.normalized_data["aircraft"]["longitude"] == -86.1581
+
+
+def test_opensky_bounds_saved_record_normalizes_into_shared_shape() -> None:
+    """OpenSky bounds records should normalize into states plus bounds."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-2",
+        source_id="source-open-2",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query={"lamin": 39.0, "lamax": 40.0, "lomin": -87.0, "lomax": -86.0},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={
+            "time": 1_777_090_400,
+            "states": [
+                [
+                    "abc123",
+                    "AAL123",
+                    "United States",
+                    None,
+                    None,
+                    -86.1581,
+                    39.7684,
+                    11200.0,
+                ]
+            ],
+        },
+        metadata={"mode": "bounds", "state_count": 1},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["states"][0]["callsign"] == "AAL123"
+    assert normalized_record.normalized_data["bounds"]["lamin"] == 39.0
+
+
+def test_opensky_no_results_normalizes_into_empty_shared_payload() -> None:
+    """Empty OpenSky results should become a clean no-results normalized record."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-3",
+        source_id="source-open-3",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query={"lamin": 39.0, "lamax": 40.0, "lomin": -87.0, "lomax": -86.0},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.NO_RESULTS,
+        raw_data={"time": 1_777_090_400, "states": []},
+        metadata={"mode": "bounds", "state_count": 0},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.NO_RESULTS
+    assert normalized_record.error is None
+    assert normalized_record.normalized_data["states"] == []
+    assert normalized_record.normalized_data["bounds"]["lamin"] == 39.0
+
+
+def test_opensky_normalization_returns_error_for_wrong_top_level_shape() -> None:
+    """OpenSky normalization should fail cleanly when raw data is not a dict."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-4",
+        source_id="source-open-4",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query="AAL123",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=["bad-top-level"],
+        metadata={"mode": "aircraft"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
+def test_opensky_normalization_returns_error_for_short_state_vector() -> None:
+    """OpenSky normalization should fail when a state vector is too short."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-5",
+        source_id="source-open-5",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query="AAL123",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={"time": 1_777_090_400, "states": [["abc123", "AAL123"]]},
+        metadata={"mode": "aircraft"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
+def test_opensky_error_saved_record_passes_through_as_normalized_error() -> None:
+    """Failed OpenSky raw records should stay failed after normalization."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-open-6",
+        source_id="source-open-6",
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        query="AAL123",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.ERROR,
+        raw_data=None,
+        error=ProviderError(
+            code=ErrorCode.PROVIDER_TIMEOUT.value,
+            message="Network request timed out.",
+        ),
+        metadata={"mode": "aircraft"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.PROVIDER_TIMEOUT.value
+    assert normalized_record.normalized_data is None
+
+
 def test_crt_sh_saved_record_normalizes_into_shared_shape() -> None:
     """crt.sh certificate records should normalize into shared certificate data."""
     saved_raw_record = SavedRawRecord(
@@ -277,13 +445,13 @@ def test_normalization_router_returns_clean_error_for_unsupported_provider() -> 
     saved_raw_record = SavedRawRecord(
         record_id="raw-5",
         source_id="source-5",
-        provider=ProviderKind.OPENSKY,
-        source_type=SourceKind.SCRAPER,
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
         query="example.com",
         fetched_at="2026-04-26T00:00:00+00:00",
         saved_at="2026-04-26T00:00:01+00:00",
         status=FetchStatus.SUCCESS,
-        raw_data={"icao24": "abc123"},
+        raw_data={"payload": {"name": "example"}},
         metadata={},
     )
 

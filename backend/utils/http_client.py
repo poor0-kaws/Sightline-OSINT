@@ -24,9 +24,16 @@ class JSONResponse:
 class HTTPClientError(Exception):
     """Raised when an HTTP request fails cleanly."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        failure_kind: str = "unknown",
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.failure_kind = failure_kind
 
 
 def _build_url(url: str, params: dict[str, Any] | None = None) -> str:
@@ -57,16 +64,29 @@ def get_json(
             response_body = response.read().decode("utf-8")
             status_code = response.getcode()
     except HTTPError as error:
-        raise HTTPClientError(f"HTTP request failed with status {error.code}.", status_code=error.code) from error
+        raise HTTPClientError(
+            f"HTTP request failed with status {error.code}.",
+            status_code=error.code,
+            failure_kind="http_error",
+        ) from error
     except URLError as error:
-        raise HTTPClientError(f"Network request failed: {error.reason}") from error
+        raise HTTPClientError(
+            f"Network request failed: {error.reason}",
+            failure_kind="network_error",
+        ) from error
     except TimeoutError as error:
-        raise HTTPClientError("Network request timed out.") from error
+        raise HTTPClientError(
+            "Network request timed out.",
+            failure_kind="timeout",
+        ) from error
 
     try:
         response_data = json.loads(response_body)
     except json.JSONDecodeError as error:
-        raise HTTPClientError("Provider returned invalid JSON.") from error
+        raise HTTPClientError(
+            "Provider returned invalid JSON.",
+            failure_kind="invalid_json",
+        ) from error
 
     return JSONResponse(
         status_code=status_code,

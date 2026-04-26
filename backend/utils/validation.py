@@ -75,6 +75,27 @@ def is_valid_domain_name(value: Any) -> bool:
     return True
 
 
+def get_crt_sh_query_error(value: Any) -> str | None:
+    """Return a readable CRT.sh query error, or None when the query is valid."""
+    if not isinstance(value, str):
+        return "crt.sh expects a plain domain string like example.com."
+
+    candidate = value.strip()
+    if not candidate:
+        return "crt.sh expects a plain domain string like example.com."
+
+    if "://" in candidate:
+        return "crt.sh expects a domain like example.com, not a full URL."
+
+    if is_valid_ipv4_address(candidate):
+        return "crt.sh expects a domain like example.com, not an IP address."
+
+    if not is_valid_domain_name(candidate):
+        return "crt.sh expects a domain like example.com."
+
+    return None
+
+
 def is_valid_aircraft_id(value: Any) -> bool:
     """Return True when the value looks like a usable aircraft id or callsign."""
     if not isinstance(value, str):

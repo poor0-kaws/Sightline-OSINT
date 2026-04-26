@@ -15,6 +15,7 @@ from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceKind
 from backend.schemas.ingestion import SourceRequest
+from backend.schemas.storage import SavedRawRecord
 from backend.storage import save_raw_response_safely
 from backend.utils.time import utc_now_iso
 from backend.utils.values import clean_text
@@ -33,6 +34,20 @@ class IngestionService:
 
     def run_source_request(self, source_request: object) -> RawProviderResponse:
         """Run one source request and turn hard crashes into error wrappers."""
+        response, _saved_raw_record = self.run_source_request_with_record(source_request)
+        return response
+
+    def run_source_request_with_record(
+        self,
+        source_request: object,
+    ) -> tuple[RawProviderResponse, SavedRawRecord | None]:
+        """Run one source request, save the raw response, and return both results."""
+        response = self._build_source_response(source_request)
+        saved_raw_record = self._try_save_response(source_request=source_request, raw_response=response)
+        return response, saved_raw_record
+
+    def _build_source_response(self, source_request: object) -> RawProviderResponse:
+        """Build one raw provider response with service-level crash protection."""
         if not self._looks_like_source_request(source_request):
             return self._build_service_error_response(
                 source_request=source_request,
@@ -49,38 +64,41 @@ class IngestionService:
             if error_message.startswith("Unsupported provider:"):
                 error_code = ErrorCode.UNSUPPORTED_PROVIDER
 
-            response = self._build_service_error_response(
+            return self._build_service_error_response(
                 source_request=source_request,
                 error_code=error_code,
                 message=error_message,
                 metadata={"exception_type": type(error).__name__},
             )
         except Exception as error:
-            response = self._build_service_error_response(
+            return self._build_service_error_response(
                 source_request=source_request,
                 error_code=ErrorCode.UNEXPECTED_SOURCE_ERROR,
                 message=clean_text(str(error)) or "Unexpected source-layer error.",
                 metadata={"exception_type": type(error).__name__},
             )
-        else:
-            if not isinstance(response, RawProviderResponse):
-                response = self._build_service_error_response(
-                    source_request=source_request,
-                    error_code=ErrorCode.INVALID_PROVIDER_RESPONSE,
-                    message="Source adapter returned an invalid response shape.",
-                    metadata={"returned_type": type(response).__name__},
-                )
 
-        self._try_save_response(source_request=source_request, raw_response=response)
+        if not isinstance(response, RawProviderResponse):
+            return self._build_service_error_response(
+                source_request=source_request,
+                error_code=ErrorCode.INVALID_PROVIDER_RESPONSE,
+                message="Source adapter returned an invalid response shape.",
+                metadata={"returned_type": type(response).__name__},
+            )
+
         return response
 
-    def _try_save_response(self, source_request: object, raw_response: RawProviderResponse) -> None:
+    def _try_save_response(
+        self,
+        source_request: object,
+        raw_response: RawProviderResponse,
+    ) -> SavedRawRecord | None:
         """Try to save a raw response when a source config is available."""
         source_config = getattr(source_request, "source", None)
         if source_config is None:
-            return
+            return None
 
-        save_raw_response_safely(source_config=source_config, raw_response=raw_response)
+        return save_raw_response_safely(source_config=source_config, raw_response=raw_response)
 
     def _looks_like_source_request(self, source_request: object) -> bool:
         """Check for the minimum shape needed to route one request."""

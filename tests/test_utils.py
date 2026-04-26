@@ -9,6 +9,7 @@ import pytest
 
 from backend.utils.time import utc_now_iso
 from backend.utils.validation import is_valid_aircraft_id
+from backend.utils.validation import get_crt_sh_query_error
 from backend.utils.validation import has_valid_bounding_box
 from backend.utils.validation import has_valid_coordinates
 from backend.utils.validation import is_valid_domain_name
@@ -79,6 +80,25 @@ def test_is_valid_domain_name_rejects_spaces() -> None:
 def test_is_valid_domain_name_rejects_numeric_top_level_label() -> None:
     """A fake domain with a numeric final label should fail validation."""
     assert is_valid_domain_name("portal.example.123") is False
+
+
+def test_get_crt_sh_query_error_accepts_plain_domain() -> None:
+    """CRT.sh helper should accept a simple domain query."""
+    assert get_crt_sh_query_error("example.com") is None
+
+
+def test_get_crt_sh_query_error_rejects_full_url() -> None:
+    """CRT.sh helper should reject URL-like input early."""
+    assert get_crt_sh_query_error("https://example.com") == (
+        "crt.sh expects a domain like example.com, not a full URL."
+    )
+
+
+def test_get_crt_sh_query_error_rejects_ip_address() -> None:
+    """CRT.sh helper should reject IP addresses early."""
+    assert get_crt_sh_query_error("8.8.8.8") == (
+        "crt.sh expects a domain like example.com, not an IP address."
+    )
 
 
 def test_is_valid_aircraft_id_accepts_simple_callsign() -> None:

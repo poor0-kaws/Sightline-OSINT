@@ -281,6 +281,20 @@ def test_crt_sh_rejects_url_like_value() -> None:
     assert response.error.code == "bad_query_type"
 
 
+def test_crt_sh_rejects_ip_address_query() -> None:
+    """crt.sh should reject IP addresses instead of plain domains."""
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.CRT_SH),
+            query="8.8.8.8",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error.code == "bad_query_type"
+
+
 def test_nominatim_rejects_out_of_range_coordinates() -> None:
     """Nominatim should reject coordinates outside the earth range."""
     service = IngestionService()
@@ -418,5 +432,266 @@ def test_ipinfo_returns_clean_error_when_http_helper_fails(
 
     assert response.status == FetchStatus.ERROR
     assert response.error is not None
-    assert response.error.code == "provider_http_error"
+    assert response.error.code == "provider_rate_limited"
     assert response.metadata["response_code"] == 429
+
+
+def test_nominatim_uses_live_search_http_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nominatim place lookups should go through the live search endpoint."""
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data=[
+                {
+                    "display_name": "Indianapolis, Marion County, Indiana, United States",
+                    "lat": "39.7684",
+                    "lon": "-86.1581",
+                }
+            ],
+            url="https://nominatim.openstreetmap.org/search?format=jsonv2&q=Indianapolis",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.NOMINATIM, timeout_seconds=12),
+            query="Indianapolis",
+        )
+    )
+
+    assert captured_call["url"] == "https://nominatim.openstreetmap.org/search"
+    assert captured_call["params"] == {"format": "jsonv2", "q": "Indianapolis"}
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 12
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "search"
+    assert response.raw_data[0]["display_name"].startswith("Indianapolis")
+
+
+def test_nominatim_uses_live_reverse_http_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nominatim coordinate lookups should go through the live reverse endpoint."""
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data={
+                "display_name": "Indianapolis, Marion County, Indiana, United States",
+                "lat": "39.7684",
+                "lon": "-86.1581",
+            },
+            url="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=39.7684&lon=-86.1581",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.NOMINATIM, timeout_seconds=13),
+            query={"lat": 39.7684, "lon": -86.1581},
+        )
+    )
+
+    assert captured_call["url"] == "https://nominatim.openstreetmap.org/reverse"
+    assert captured_call["params"] == {
+        "format": "jsonv2",
+        "lat": 39.7684,
+        "lon": -86.1581,
+    }
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 13
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "reverse"
+    assert response.raw_data["display_name"].startswith("Indianapolis")
+
+
+def test_nominatim_returns_clean_timeout_error_when_http_helper_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live Nominatim failures should return shared timeout errors, not crash."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("Network request timed out.", failure_kind="timeout")
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.NOMINATIM),
+            query="Indianapolis",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_timeout"
+    assert response.metadata["mode"] == "search"
+
+
+def test_nominatim_returns_clean_error_for_wrong_search_response_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live Nominatim should reject valid JSON that has the wrong top-level shape."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data={"display_name": "Indianapolis"},
+            url="https://nominatim.openstreetmap.org/search?format=jsonv2&q=Indianapolis",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.NOMINATIM),
+            query="Indianapolis",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_bad_response"
+    assert response.metadata["mode"] == "search"
+
+
+def test_crt_sh_uses_live_http_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CRT.sh domain lookups should go through the live search endpoint."""
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        captured_call["params"] = params
+        captured_call["headers"] = headers
+        captured_call["timeout_seconds"] = timeout_seconds
+        return JSONResponse(
+            status_code=200,
+            data=[
+                {
+                    "common_name": "example.com",
+                    "issuer_name": "Let's Encrypt",
+                    "not_before": "2026-01-10T00:00:00Z",
+                }
+            ],
+            url="https://crt.sh?q=example.com&output=json",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.CRT_SH, timeout_seconds=14),
+            query="example.com",
+        )
+    )
+
+    assert captured_call["url"] == "https://crt.sh"
+    assert captured_call["params"] == {"q": "example.com", "output": "json"}
+    assert captured_call["headers"] == {"Accept": "application/json"}
+    assert captured_call["timeout_seconds"] == 14
+    assert response.status == FetchStatus.SUCCESS
+    assert response.metadata["mode"] == "search"
+    assert response.metadata["result_count"] == 1
+    assert response.raw_data[0]["common_name"] == "example.com"
+
+
+def test_crt_sh_returns_no_results_for_empty_live_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CRT.sh should surface an empty result list as no_results."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data=[],
+            url="https://crt.sh?q=example.com&output=json",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.CRT_SH),
+            query="example.com",
+        )
+    )
+
+    assert response.status == FetchStatus.NO_RESULTS
+    assert response.error is None
+    assert response.raw_data == []
+    assert response.metadata["result_count"] == 0
+
+
+def test_crt_sh_returns_clean_timeout_error_when_http_helper_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live CRT.sh failures should return shared timeout errors, not crash."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("Network request timed out.", failure_kind="timeout")
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.CRT_SH),
+            query="example.com",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_timeout"
+    assert response.metadata["mode"] == "search"
+
+
+def test_crt_sh_returns_clean_error_for_wrong_live_response_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live CRT.sh should reject valid JSON that has the wrong top-level shape."""
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        return JSONResponse(
+            status_code=200,
+            data={"common_name": "example.com"},
+            url="https://crt.sh?q=example.com&output=json",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(provider=ProviderKind.CRT_SH),
+            query="example.com",
+        )
+    )
+
+    assert response.status == FetchStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "provider_bad_response"
+    assert response.metadata["mode"] == "search"

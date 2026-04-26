@@ -5,6 +5,7 @@ from __future__ import annotations
 from backend.normalization.crt_sh_normalizer import normalize_crt_sh_record
 from backend.normalization.ipinfo_normalizer import normalize_ipinfo_record
 from backend.normalization.nominatim_normalizer import normalize_nominatim_record
+from backend.normalization.opensky_normalizer import normalize_opensky_record
 from backend.normalization.schemas import NormalizedRecord
 from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
@@ -23,6 +24,9 @@ def normalize_saved_raw_record(saved_raw_record: SavedRawRecord) -> NormalizedRe
 
     if saved_raw_record.provider == ProviderKind.NOMINATIM:
         return normalize_nominatim_record(saved_raw_record)
+
+    if saved_raw_record.provider == ProviderKind.OPENSKY:
+        return normalize_opensky_record(saved_raw_record)
 
     return NormalizedRecord(
         provider=saved_raw_record.provider,

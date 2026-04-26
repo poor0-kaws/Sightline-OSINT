@@ -69,6 +69,36 @@ def test_nominatim_search_saved_record_normalizes_into_shared_shape() -> None:
     assert normalized_record.normalized_data["places"][0]["latitude"] == 39.7684
 
 
+def test_nominatim_search_normalization_returns_error_for_bad_item_type() -> None:
+    """Nominatim search normalization should fail when one result item is not a dict."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-nom-1",
+        source_id="source-nom-1",
+        provider=ProviderKind.NOMINATIM,
+        source_type=SourceKind.API,
+        query="Indianapolis",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=[
+            {
+                "display_name": "Indianapolis, Marion County, Indiana, United States",
+                "lat": "39.7684",
+                "lon": "-86.1581",
+            },
+            "bad-item",
+        ],
+        metadata={"mode": "search"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
 def test_nominatim_reverse_saved_record_normalizes_into_shared_shape() -> None:
     """Nominatim reverse results should normalize into shared place data."""
     saved_raw_record = SavedRawRecord(
@@ -262,6 +292,235 @@ def test_opensky_error_saved_record_passes_through_as_normalized_error() -> None
     assert normalized_record.normalized_data is None
 
 
+def test_webhook_saved_record_normalizes_into_shared_shape() -> None:
+    """Webhook raw records should normalize into event type plus payload."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-web-1",
+        source_id="source-web-1",
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
+        query={
+            "event_type": "breach.alert",
+            "payload": {"email": "maya@example.com", "domain": "example.com"},
+        },
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={
+            "event_type": "breach.alert",
+            "payload": {"email": "maya@example.com", "domain": "example.com"},
+        },
+        metadata={"delivery_mode": "push"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["event_type"] == "breach.alert"
+    assert normalized_record.normalized_data["payload"]["email"] == "maya@example.com"
+
+
+def test_webhook_normalization_returns_error_for_non_dict_payload() -> None:
+    """Webhook normalization should fail when payload is not a dictionary."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-web-2",
+        source_id="source-web-2",
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
+        query={"event_type": "breach.alert", "payload": []},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={"event_type": "breach.alert", "payload": []},
+        metadata={"delivery_mode": "push"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
+def test_webhook_error_saved_record_passes_through_as_normalized_error() -> None:
+    """Failed webhook raw records should stay failed after normalization."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-web-3",
+        source_id="source-web-3",
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
+        query={"payload": {"email": "maya@example.com"}},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.ERROR,
+        raw_data=None,
+        error=ProviderError(
+            code=ErrorCode.MISSING_REQUIRED_FIELD.value,
+            message="Webhook payload needs an event_type field.",
+        ),
+        metadata={"delivery_mode": "push"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.MISSING_REQUIRED_FIELD.value
+    assert normalized_record.normalized_data is None
+
+
+def test_csv_upload_saved_record_normalizes_into_shared_shape() -> None:
+    """CSV-upload raw records should normalize into a rows list."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-csv-1",
+        source_id="source-csv-1",
+        provider=ProviderKind.CSV_UPLOAD,
+        source_type=SourceKind.CSV,
+        query=[
+            {"name": "Maya Patel", "email": "maya@example.com"},
+            {"name": "Omar Ruiz", "email": "omar@example.com"},
+        ],
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=[
+            {"name": "Maya Patel", "email": "maya@example.com"},
+            {"name": "Omar Ruiz", "email": "omar@example.com"},
+        ],
+        metadata={"row_count": 2},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert len(normalized_record.normalized_data["rows"]) == 2
+    assert normalized_record.normalized_data["rows"][0]["email"] == "maya@example.com"
+
+
+def test_csv_upload_empty_rows_normalize_cleanly() -> None:
+    """CSV-upload normalization should allow an empty row list."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-csv-2",
+        source_id="source-csv-2",
+        provider=ProviderKind.CSV_UPLOAD,
+        source_type=SourceKind.CSV,
+        query=[],
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=[],
+        metadata={"row_count": 0},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data == {"rows": []}
+
+
+def test_csv_upload_normalization_returns_error_for_bad_row_type() -> None:
+    """CSV-upload normalization should fail when one row is not a dictionary."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-csv-3",
+        source_id="source-csv-3",
+        provider=ProviderKind.CSV_UPLOAD,
+        source_type=SourceKind.CSV,
+        query=[{"name": "Maya Patel"}, "bad-row"],
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=[{"name": "Maya Patel"}, "bad-row"],
+        metadata={"row_count": 2},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
+def test_manual_input_saved_record_normalizes_into_shared_shape() -> None:
+    """Manual-input raw records should normalize into a fields object."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-man-1",
+        source_id="source-man-1",
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        query={
+            "note": "Possible link between Maya Patel and portal.example.com",
+            "person_name": "Maya Patel",
+            "domain": "portal.example.com",
+        },
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={
+            "note": "Possible link between Maya Patel and portal.example.com",
+            "person_name": "Maya Patel",
+            "domain": "portal.example.com",
+        },
+        metadata={"entered_by": "analyst"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["fields"]["note"].startswith("Possible link")
+
+
+def test_manual_input_normalization_returns_error_for_wrong_top_level_shape() -> None:
+    """Manual-input normalization should fail when raw data is not a dictionary."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-man-2",
+        source_id="source-man-2",
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        query={"note": "Possible link"},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data=["bad-top-level"],
+        metadata={"entered_by": "analyst"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.NORMALIZATION_BAD_RAW_DATA.value
+    assert normalized_record.normalized_data is None
+
+
+def test_manual_input_error_saved_record_passes_through_as_normalized_error() -> None:
+    """Failed manual-input raw records should stay failed after normalization."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-man-3",
+        source_id="source-man-3",
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        query={"person_name": "Maya Patel"},
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.ERROR,
+        raw_data=None,
+        error=ProviderError(
+            code=ErrorCode.MISSING_REQUIRED_FIELD.value,
+            message="Manual input requires a note field.",
+        ),
+        metadata={"entered_by": "analyst"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
+    assert normalized_record.error.code == ErrorCode.MISSING_REQUIRED_FIELD.value
+    assert normalized_record.normalized_data is None
+
+
 def test_crt_sh_saved_record_normalizes_into_shared_shape() -> None:
     """crt.sh certificate records should normalize into shared certificate data."""
     saved_raw_record = SavedRawRecord(
@@ -440,22 +699,45 @@ def test_error_saved_record_passes_through_as_normalized_error() -> None:
     assert normalized_record.normalized_data is None
 
 
-def test_normalization_router_returns_clean_error_for_unsupported_provider() -> None:
-    """Providers without a normalizer should return a clean normalization error."""
+def test_normalization_router_supports_crt_sh() -> None:
+    """Providers with a normalizer should route to the expected normalizer."""
     saved_raw_record = SavedRawRecord(
         record_id="raw-5",
         source_id="source-5",
-        provider=ProviderKind.WEBHOOK,
-        source_type=SourceKind.WEBHOOK,
+        provider=ProviderKind.CRT_SH,
+        source_type=SourceKind.SCRAPER,
         query="example.com",
         fetched_at="2026-04-26T00:00:00+00:00",
         saved_at="2026-04-26T00:00:01+00:00",
         status=FetchStatus.SUCCESS,
-        raw_data={"payload": {"name": "example"}},
+        raw_data=[{"common_name": "example.com"}],
         metadata={},
     )
 
     normalized_record = normalize_saved_raw_record(saved_raw_record)
 
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["certificates"][0]["common_name"] == "example.com"
+
+
+def test_normalization_router_returns_clean_error_for_still_unsupported_provider() -> None:
+    """Providers without a normalizer should return a clean normalization error."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-6",
+        source_id="source-6",
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        query="8.8.8.8",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={"ip": "8.8.8.8"},
+        metadata={},
+    )
+    saved_raw_record.provider = "unknown-provider"
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
     assert normalized_record.status == FetchStatus.ERROR
+    assert normalized_record.error is not None
     assert normalized_record.error.code == ErrorCode.NORMALIZATION_UNSUPPORTED_PROVIDER.value

@@ -177,3 +177,102 @@ def test_processing_pipeline_returns_normalized_error_for_opensky_live_failure(
     assert normalized_record.status.value == "error"
     assert normalized_record.error.code == ErrorCode.PROVIDER_TIMEOUT.value
     assert normalized_record.normalized_data is None
+
+
+def test_processing_pipeline_runs_fetch_save_and_normalize_for_webhook(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared pipeline should save webhook raw data before normalizing it."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-6",
+                provider=ProviderKind.WEBHOOK,
+            ),
+            query={
+                "event_type": "breach.alert",
+                "payload": {"email": "maya@example.com", "domain": "example.com"},
+            },
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "success"
+    assert normalized_record.normalized_data["event_type"] == "breach.alert"
+
+
+def test_processing_pipeline_runs_fetch_save_and_normalize_for_csv_upload(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared pipeline should save CSV-upload rows before normalizing them."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-7",
+                provider=ProviderKind.CSV_UPLOAD,
+            ),
+            query=[
+                {"name": "Maya Patel", "email": "maya@example.com"},
+                {"name": "Omar Ruiz", "email": "omar@example.com"},
+            ],
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "success"
+    assert len(normalized_record.normalized_data["rows"]) == 2
+
+
+def test_processing_pipeline_runs_fetch_save_and_normalize_for_manual_input(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared pipeline should save manual-input data before normalizing it."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-8",
+                provider=ProviderKind.MANUAL_INPUT,
+            ),
+            query={
+                "note": "Possible link between Maya Patel and portal.example.com",
+                "person_name": "Maya Patel",
+                "domain": "portal.example.com",
+            },
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "success"
+    assert normalized_record.normalized_data["fields"]["domain"] == "portal.example.com"
+
+
+def test_processing_pipeline_returns_normalized_error_for_webhook_validation_failure(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Webhook validation failures should still save raw errors and normalize them cleanly."""
+    monkeypatch.setenv("RAW_STORAGE_PATH", str(tmp_path))
+    pipeline = ProviderProcessingPipeline()
+    normalized_record = pipeline.run(
+        SourceRequest(
+            source=SourceConfig(
+                source_id="case-source-9",
+                provider=ProviderKind.WEBHOOK,
+            ),
+            query={"payload": {"email": "maya@example.com"}},
+        )
+    )
+
+    assert normalized_record.raw_record_id != ""
+    assert normalized_record.status.value == "error"
+    assert normalized_record.error.code == ErrorCode.MISSING_REQUIRED_FIELD.value
+    assert normalized_record.normalized_data is None

@@ -1,13 +1,17 @@
-"""Rule-based entity resolution for person-like records."""
+"""Rule-based entity resolution helpers."""
 
 from __future__ import annotations
 
 import re
 
+from backend.resolution.schemas import EntityType
+from backend.resolution.schemas import MatchCandidate
 from backend.resolution.schemas import MatchReason
 from backend.resolution.schemas import PersonRecord
 from backend.resolution.schemas import ResolutionDecision
 from backend.resolution.schemas import ResolutionResult
+from backend.utils.validation import is_valid_domain_name
+from backend.utils.validation import is_valid_ipv4_address
 
 
 EMAIL_CONFIDENCE = 15
@@ -101,6 +105,31 @@ def resolve_person_records(left_record: PersonRecord, right_record: PersonRecord
     )
 
 
+def resolve_match_candidates(left_candidate: MatchCandidate, right_candidate: MatchCandidate) -> ResolutionResult:
+    """Resolve two general match candidates using the correct type-specific path."""
+    if left_candidate.entity_type != right_candidate.entity_type:
+        return _build_no_match_result(
+            left_record_id=left_candidate.record_id,
+            right_record_id=right_candidate.record_id,
+        )
+
+    if left_candidate.entity_type == EntityType.DOMAIN:
+        return _resolve_domain_candidates(left_candidate, right_candidate)
+
+    if left_candidate.entity_type == EntityType.IP:
+        return _resolve_ip_candidates(left_candidate, right_candidate)
+
+    if left_candidate.entity_type == EntityType.PERSON:
+        left_person_record = _build_person_record_from_candidate(left_candidate)
+        right_person_record = _build_person_record_from_candidate(right_candidate)
+        return resolve_person_records(left_person_record, right_person_record)
+
+    return _build_no_match_result(
+        left_record_id=left_candidate.record_id,
+        right_record_id=right_candidate.record_id,
+    )
+
+
 def _score_email_match(left_record: PersonRecord, right_record: PersonRecord) -> MatchReason | None:
     """Award confidence for a rigorously validated exact email match."""
     left_emails = _extract_usable_emails(left_record.emails)
@@ -119,6 +148,60 @@ def _score_email_match(left_record: PersonRecord, right_record: PersonRecord) ->
     )
 
 
+def _resolve_domain_candidates(
+    left_candidate: MatchCandidate,
+    right_candidate: MatchCandidate,
+) -> ResolutionResult:
+    """Resolve two domain candidates using exact canonical comparison."""
+    left_domain = _normalize_domain_value(left_candidate.canonical_value)
+    right_domain = _normalize_domain_value(right_candidate.canonical_value)
+    if not left_domain or not right_domain:
+        return _build_no_match_result(
+            left_record_id=left_candidate.record_id,
+            right_record_id=right_candidate.record_id,
+        )
+
+    if left_domain != right_domain:
+        return _build_no_match_result(
+            left_record_id=left_candidate.record_id,
+            right_record_id=right_candidate.record_id,
+        )
+
+    return _build_exact_match_result(
+        left_record_id=left_candidate.record_id,
+        right_record_id=right_candidate.record_id,
+        helper_name="domain_exact_match",
+        message=f"Exact normalized domain match: {left_domain}",
+    )
+
+
+def _resolve_ip_candidates(
+    left_candidate: MatchCandidate,
+    right_candidate: MatchCandidate,
+) -> ResolutionResult:
+    """Resolve two IP candidates using exact canonical comparison."""
+    left_ip = _normalize_ip_value(left_candidate.canonical_value)
+    right_ip = _normalize_ip_value(right_candidate.canonical_value)
+    if not left_ip or not right_ip:
+        return _build_no_match_result(
+            left_record_id=left_candidate.record_id,
+            right_record_id=right_candidate.record_id,
+        )
+
+    if left_ip != right_ip:
+        return _build_no_match_result(
+            left_record_id=left_candidate.record_id,
+            right_record_id=right_candidate.record_id,
+        )
+
+    return _build_exact_match_result(
+        left_record_id=left_candidate.record_id,
+        right_record_id=right_candidate.record_id,
+        helper_name="ip_exact_match",
+        message=f"Exact normalized IP match: {left_ip}",
+    )
+
+
 def _score_phone_match(left_record: PersonRecord, right_record: PersonRecord) -> MatchReason | None:
     """Award confidence for a rigorously validated exact phone match."""
     left_phone_numbers = _extract_usable_phone_numbers(left_record.phone_numbers)
@@ -134,6 +217,55 @@ def _score_phone_match(left_record: PersonRecord, right_record: PersonRecord) ->
         helper_name="phone_match",
         confidence_added=PHONE_CONFIDENCE,
         message=f"Exact normalized phone match: {matched_phone_numbers[0]}",
+    )
+
+
+def _build_exact_match_result(
+    *,
+    left_record_id: str,
+    right_record_id: str,
+    helper_name: str,
+    message: str,
+) -> ResolutionResult:
+    """Build a full-confidence merge result for exact identifier matches."""
+    return ResolutionResult(
+        left_record_id=left_record_id,
+        right_record_id=right_record_id,
+        confidence_percent=100,
+        decision=ResolutionDecision.MERGE,
+        reasons=[
+            MatchReason(
+                helper_name=helper_name,
+                confidence_added=100,
+                message=message,
+            )
+        ],
+    )
+
+
+def _build_no_match_result(*, left_record_id: str, right_record_id: str) -> ResolutionResult:
+    """Build a clean no-match result without any scoring reasons."""
+    return ResolutionResult(
+        left_record_id=left_record_id,
+        right_record_id=right_record_id,
+        confidence_percent=0,
+        decision=ResolutionDecision.NO_MATCH,
+        reasons=[],
+    )
+
+
+def _build_person_record_from_candidate(candidate: MatchCandidate) -> PersonRecord:
+    """Turn one general person candidate into the existing person-record shape."""
+    attributes = candidate.attributes if isinstance(candidate.attributes, dict) else {}
+    return PersonRecord(
+        record_id=candidate.record_id,
+        full_name=_to_text(attributes.get("full_name")),
+        emails=_to_text_list(attributes.get("emails")),
+        phone_numbers=_to_text_list(attributes.get("phone_numbers")),
+        company_name=_to_text(attributes.get("company_name")),
+        city=_to_text(attributes.get("city")),
+        region=_to_text(attributes.get("region")),
+        country=_to_text(attributes.get("country")),
     )
 
 
@@ -302,6 +434,30 @@ def _normalize_company_name(value: str) -> str:
     return " ".join(tokens).strip()
 
 
+def _normalize_domain_value(value: str) -> str:
+    """Normalize a domain into a stable exact-match string."""
+    if not isinstance(value, str):
+        return ""
+
+    normalized_value = value.strip().lower()
+    if not is_valid_domain_name(normalized_value):
+        return ""
+
+    return normalized_value
+
+
+def _normalize_ip_value(value: str) -> str:
+    """Normalize an IPv4 address into a stable exact-match string."""
+    if not isinstance(value, str):
+        return ""
+
+    normalized_value = value.strip()
+    if not is_valid_ipv4_address(normalized_value):
+        return ""
+
+    return normalized_value
+
+
 def _normalize_text(value: str) -> str:
     """Normalize free text by lowercasing and collapsing punctuation/spacing."""
     if not isinstance(value, str):
@@ -314,6 +470,33 @@ def _normalize_text(value: str) -> str:
     normalized_value = re.sub(r"[^a-z0-9]+", " ", normalized_value)
     normalized_value = re.sub(r"\s+", " ", normalized_value)
     return normalized_value.strip()
+
+
+def _to_text(value: object) -> str:
+    """Return a safe stripped string value."""
+    if not isinstance(value, str):
+        return ""
+
+    return value.strip()
+
+
+def _to_text_list(value: object) -> list[str]:
+    """Return a list of clean string values."""
+    if not isinstance(value, list):
+        return []
+
+    cleaned_values: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+
+        cleaned_item = item.strip()
+        if not cleaned_item:
+            continue
+
+        cleaned_values.append(cleaned_item)
+
+    return cleaned_values
 
 
 def _is_role_based_email(email_value: str) -> bool:

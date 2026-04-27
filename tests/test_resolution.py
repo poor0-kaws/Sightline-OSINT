@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from backend.normalization.schemas import NormalizedRecord
+from backend.resolution import EntityType
+from backend.resolution import MatchCandidate
 from backend.resolution import PersonRecord
 from backend.resolution import ResolutionDecision
+from backend.resolution import build_match_candidates_from_normalized_record
+from backend.resolution import resolve_match_candidates
 from backend.resolution import resolve_person_records
+from backend.schemas.ingestion import FetchStatus
+from backend.schemas.ingestion import ProviderKind
+from backend.schemas.ingestion import SourceKind
 
 
 def test_resolution_merges_when_strong_signals_and_bonus_push_confidence_to_ninety() -> None:
@@ -244,3 +252,251 @@ def test_resolution_missing_email_and_phone_can_still_review_when_other_signals_
 
     assert result.confidence_percent == 45
     assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_merges_exact_domain_candidates_case_insensitively() -> None:
+    """Same domains should merge even when letter case is different."""
+    left_candidate = MatchCandidate(
+        record_id="domain-1",
+        entity_type=EntityType.DOMAIN,
+        canonical_value="Example.COM",
+        display_value="Example.COM",
+    )
+    right_candidate = MatchCandidate(
+        record_id="domain-2",
+        entity_type=EntityType.DOMAIN,
+        canonical_value="example.com",
+        display_value="example.com",
+    )
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 100
+    assert result.decision == ResolutionDecision.MERGE
+    assert [reason.helper_name for reason in result.reasons] == ["domain_exact_match"]
+
+
+def test_general_resolution_returns_no_match_for_different_domains() -> None:
+    """Different domains should never merge on the exact-match path."""
+    left_candidate = MatchCandidate(record_id="domain-3", entity_type=EntityType.DOMAIN, canonical_value="example.com")
+    right_candidate = MatchCandidate(record_id="domain-4", entity_type=EntityType.DOMAIN, canonical_value="example.org")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 0
+    assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_returns_no_match_for_blank_domain_values() -> None:
+    """Blank domain candidates should fail safely instead of crashing."""
+    left_candidate = MatchCandidate(record_id="domain-5", entity_type=EntityType.DOMAIN, canonical_value=" ")
+    right_candidate = MatchCandidate(record_id="domain-6", entity_type=EntityType.DOMAIN, canonical_value="example.com")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 0
+    assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_merges_exact_ip_candidates() -> None:
+    """Same IP addresses should merge immediately on exact match."""
+    left_candidate = MatchCandidate(record_id="ip-1", entity_type=EntityType.IP, canonical_value="8.8.8.8")
+    right_candidate = MatchCandidate(record_id="ip-2", entity_type=EntityType.IP, canonical_value="8.8.8.8")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 100
+    assert result.decision == ResolutionDecision.MERGE
+    assert [reason.helper_name for reason in result.reasons] == ["ip_exact_match"]
+
+
+def test_general_resolution_returns_no_match_for_different_ips() -> None:
+    """Different IP addresses should stay separate."""
+    left_candidate = MatchCandidate(record_id="ip-3", entity_type=EntityType.IP, canonical_value="8.8.8.8")
+    right_candidate = MatchCandidate(record_id="ip-4", entity_type=EntityType.IP, canonical_value="1.1.1.1")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 0
+    assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_returns_no_match_for_blank_ip_values() -> None:
+    """Blank IP candidates should return a clean no-match result."""
+    left_candidate = MatchCandidate(record_id="ip-5", entity_type=EntityType.IP, canonical_value="")
+    right_candidate = MatchCandidate(record_id="ip-6", entity_type=EntityType.IP, canonical_value="8.8.8.8")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 0
+    assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_returns_no_match_for_mixed_entity_types() -> None:
+    """A domain and an IP should never be compared as the same entity."""
+    left_candidate = MatchCandidate(record_id="mixed-1", entity_type=EntityType.DOMAIN, canonical_value="example.com")
+    right_candidate = MatchCandidate(record_id="mixed-2", entity_type=EntityType.IP, canonical_value="8.8.8.8")
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 0
+    assert result.decision == ResolutionDecision.NO_MATCH
+
+
+def test_general_resolution_delegates_person_candidates_to_existing_person_engine() -> None:
+    """Person candidates should reuse the already-tested person scoring path."""
+    left_candidate = MatchCandidate(
+        record_id="person-candidate-1",
+        entity_type=EntityType.PERSON,
+        attributes={
+            "full_name": "Maya Patel",
+            "emails": ["maya.patel@gmail.com"],
+            "phone_numbers": ["3175550101"],
+            "company_name": "OpenAI LLC",
+            "city": "Indianapolis",
+            "country": "US",
+        },
+    )
+    right_candidate = MatchCandidate(
+        record_id="person-candidate-2",
+        entity_type=EntityType.PERSON,
+        attributes={
+            "full_name": "Maya Patel",
+            "emails": ["maya.patel@gmail.com"],
+            "phone_numbers": ["+1 (317) 555-0101"],
+            "company_name": "OpenAI",
+            "city": "Indianapolis",
+            "country": "US",
+        },
+    )
+
+    result = resolve_match_candidates(left_candidate, right_candidate)
+
+    assert result.confidence_percent == 100
+    assert result.decision == ResolutionDecision.MERGE
+
+
+def test_candidate_builder_extracts_ip_candidate_from_ipinfo_record() -> None:
+    """IPinfo normalized output should produce one exact-match-ready IP candidate."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        raw_record_id="raw-ip-1",
+        query="8.8.8.8",
+        status=FetchStatus.SUCCESS,
+        normalized_data={"ip_address": "8.8.8.8"},
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert len(candidates) == 1
+    assert candidates[0].entity_type == EntityType.IP
+    assert candidates[0].canonical_value == "8.8.8.8"
+
+
+def test_candidate_builder_extracts_unique_domains_from_crt_sh_record() -> None:
+    """crt.sh normalized certificates should become deduplicated domain candidates."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.CRT_SH,
+        source_type=SourceKind.API,
+        raw_record_id="raw-crt-1",
+        query="example.com",
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "certificates": [
+                {
+                    "common_name": "Example.com",
+                    "name_value": "example.com\nwww.example.com\n8.8.8.8",
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert [candidate.canonical_value for candidate in candidates] == [
+        "example.com",
+        "www.example.com",
+    ]
+
+
+def test_candidate_builder_returns_empty_for_malformed_crt_sh_certificate_list() -> None:
+    """Malformed certificate items should fail safe and produce no candidates."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.CRT_SH,
+        source_type=SourceKind.API,
+        raw_record_id="raw-crt-2",
+        query="example.com",
+        status=FetchStatus.SUCCESS,
+        normalized_data={"certificates": ["bad-item"]},
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert candidates == []
+
+
+def test_candidate_builder_extracts_person_candidate_from_manual_input_record() -> None:
+    """Manual input with person-like fields should become one person candidate."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        raw_record_id="raw-manual-1",
+        query={"full_name": "Maya Patel"},
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "fields": {
+                "full_name": "Maya Patel",
+                "email": "maya.patel@gmail.com",
+                "phone": "3175550101",
+                "company": "OpenAI",
+                "city": "Indianapolis",
+                "country": "US",
+            }
+        },
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert len(candidates) == 1
+    assert candidates[0].entity_type == EntityType.PERSON
+    assert candidates[0].attributes["full_name"] == "Maya Patel"
+    assert candidates[0].attributes["emails"] == ["maya.patel@gmail.com"]
+
+
+def test_candidate_builder_returns_empty_when_normalized_record_has_no_usable_fields() -> None:
+    """Records without resolvable identifiers should quietly produce no candidates."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        raw_record_id="raw-manual-2",
+        query={},
+        status=FetchStatus.SUCCESS,
+        normalized_data={"fields": {"notes": "just a note"}},
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert candidates == []
+
+
+def test_candidate_builder_returns_empty_for_non_success_normalized_records() -> None:
+    """Error and no-results records should not feed the resolution layer."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        raw_record_id="raw-ip-2",
+        query="8.8.8.8",
+        status=FetchStatus.ERROR,
+        normalized_data={"ip_address": "8.8.8.8"},
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert candidates == []

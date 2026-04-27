@@ -1,19 +1,28 @@
-"""Schemas for rule-based person record resolution."""
+"""Schemas for rule-based entity resolution."""
 
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from backend.utils.optional_deps import BaseModel
 from backend.utils.optional_deps import Field
 
 
 class ResolutionDecision(str, Enum):
-    """Possible outcomes for one person-record comparison."""
+    """Possible outcomes for one entity-record comparison."""
 
     MERGE = "merge"
     REVIEW_NEEDED = "review_needed"
     NO_MATCH = "no_match"
+
+
+class EntityType(str, Enum):
+    """High-level kinds of entities the resolution layer can compare."""
+
+    PERSON = "person"
+    DOMAIN = "domain"
+    IP = "ip"
 
 
 class PersonRecord(BaseModel):
@@ -27,6 +36,16 @@ class PersonRecord(BaseModel):
     city: str = Field(default="", description="Associated city")
     region: str = Field(default="", description="Associated region or state")
     country: str = Field(default="", description="Associated country")
+
+
+class MatchCandidate(BaseModel):
+    """A general comparable record that can be routed to the right resolver."""
+
+    record_id: str = Field(default="", description="Stable id for this candidate")
+    entity_type: EntityType = Field(default=EntityType.PERSON, description="What kind of entity this candidate represents")
+    canonical_value: str = Field(default="", description="Main exact-match value for simple entity types")
+    display_value: str = Field(default="", description="Human-readable value for logs and debugging")
+    attributes: dict[str, Any] = Field(default_factory=dict, description="Extra typed fields for richer entity comparisons")
 
 
 class MatchReason(BaseModel):

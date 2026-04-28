@@ -1,8 +1,12 @@
-"""Simple entry point for the current project skeleton."""
+"""HTTP entry point for the current backend prototype."""
 
 from __future__ import annotations
 
+from backend.api import build_app
 from backend.settings import get_validated_settings
+
+
+app = build_app()
 
 
 def build_startup_message() -> str:
@@ -11,7 +15,7 @@ def build_startup_message() -> str:
 
     return (
         f"{settings.app_name} is set up in {settings.app_env} mode. "
-        "The current codebase contains the ingestion prototype, not the full API or UI yet."
+        "The backend now exposes a small HTTP API for providers, raw records, normalization, and relationships."
     )
 
 

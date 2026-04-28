@@ -8,11 +8,15 @@ version = "0.1.0"
 description = "A small OSINT ingestion prototype that is growing into a graph-based investigation tool."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.136",
+]
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.28",
     "pytest>=8.0",
+    "uvicorn>=0.30",
 ]
 
 [tool.setuptools.packages.find]

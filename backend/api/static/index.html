@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sightline Fusion Workspace</title>
+    <link rel="stylesheet" href="/app/assets/app.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="panel panel-left">
+        <div class="panel-block brand-block">
+          <p class="eyebrow">Sightline Fusion</p>
+          <h1 class="brand-title">Investigation Workspace</h1>
+          <p class="brand-copy">
+            A live graph canvas for linking people, infrastructure, and evidence.
+          </p>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Case Snapshot</h2>
+            <span id="case-status" class="status-pill">LOADING</span>
+          </div>
+          <dl id="case-summary" class="stat-grid"></dl>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Legend</h2>
+            <span class="section-kicker">Node Types</span>
+          </div>
+          <div id="legend-list" class="legend-list"></div>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Signals</h2>
+            <span class="section-kicker">Confidence</span>
+          </div>
+          <ul class="signal-list">
+            <li><span class="signal-band band-high"></span> High confidence relationships</li>
+            <li><span class="signal-band band-medium"></span> Investigative leads</li>
+            <li><span class="signal-band band-low"></span> Weak contextual links</li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-bar">
+          <div>
+            <p class="eyebrow">Graph View</p>
+            <h2 id="graph-title">Operational Graph</h2>
+          </div>
+          <div class="toolbar">
+            <button id="recenter-button" class="toolbar-button" type="button">Recenter</button>
+            <button id="pulse-button" class="toolbar-button" type="button">Pulse Links</button>
+          </div>
+        </header>
+
+        <section class="graph-frame">
+          <div class="graph-overlay graph-overlay-top">
+            <span>Obsidian-style spatial graph</span>
+            <span id="graph-counts">0 nodes / 0 edges</span>
+          </div>
+          <svg
+            id="graph-canvas"
+            class="graph-canvas"
+            viewBox="0 0 1200 760"
+            role="img"
+            aria-label="Investigation graph"
+          ></svg>
+          <div class="graph-overlay graph-overlay-bottom">
+            <span>Click a node to inspect it</span>
+            <span>Palantir-inspired command center styling</span>
+          </div>
+        </section>
+      </main>
+
+      <aside class="panel panel-right">
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Selected Node</h2>
+            <span class="section-kicker">Details</span>
+          </div>
+          <div id="selected-node" class="selected-card">
+            <p class="empty-state">Choose a node from the graph.</p>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Connected Links</h2>
+            <span class="section-kicker">Edges</span>
+          </div>
+          <ul id="connection-list" class="connection-list">
+            <li class="empty-state">No node selected.</li>
+          </ul>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-heading">
+            <h2>Analyst Notes</h2>
+            <span class="section-kicker">Activity</span>
+          </div>
+          <ul id="activity-list" class="activity-list"></ul>
+        </div>
+      </aside>
+    </div>
+
+    <script src="/app/assets/app.js" defer></script>
+  </body>
+</html>

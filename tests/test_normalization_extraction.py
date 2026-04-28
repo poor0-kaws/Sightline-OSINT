@@ -263,7 +263,7 @@ def test_csv_shared_extraction_ignores_bad_optional_field_types_without_crashing
     assert {(entity.entity_type, entity.canonical_value) for entity in enriched_record.entities} == {
         ("person", "maya patel"),
         ("email", "maya@example.com"),
-        ("organization", "openai"),
+        ("company", "openai"),
     }
 
 

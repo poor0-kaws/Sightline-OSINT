@@ -333,7 +333,8 @@ def _extract_generic_mapping_artifacts(
     extra_metadata = dict(metadata or {})
 
     person_name = _first_text_value(mapping, "full_name", "person_name", "name")
-    organization_value = _first_text_value(mapping, "organization", "company_name", "company", "org")
+    company_value = _first_text_value(mapping, "company_name", "company")
+    organization_value = _first_text_value(mapping, "organization", "org")
     city = _first_text_value(mapping, "city")
     region = _first_text_value(mapping, "region", "state")
     country = _first_text_value(mapping, "country")
@@ -344,6 +345,11 @@ def _extract_generic_mapping_artifacts(
     person_canonical = collector.add_person_entity(
         person_name,
         detail=f"{detail_prefix} person name.",
+        metadata=extra_metadata,
+    )
+    company_canonical = collector.add_company_entity(
+        company_value,
+        detail=f"{detail_prefix} company value.",
         metadata=extra_metadata,
     )
     organization_canonical = collector.add_organization_entity(
@@ -406,6 +412,14 @@ def _extract_generic_mapping_artifacts(
             source_value=person_canonical,
             target_entity_type="domain",
             target_value=domain_canonical,
+            metadata=extra_metadata,
+        )
+        collector.add_relationship_if_present(
+            relationship_type="associated_with",
+            source_entity_type="person",
+            source_value=person_canonical,
+            target_entity_type="organization",
+            target_value=company_canonical,
             metadata=extra_metadata,
         )
         collector.add_relationship_if_present(
@@ -610,6 +624,23 @@ class _ArtifactCollector:
         display_value = _to_text(value) or canonical_value
         self._add_entity("organization", canonical_value, display_value, metadata=metadata)
         self._add_evidence("organization", canonical_value, "organization_field", detail, metadata=metadata)
+        return canonical_value
+
+    def add_company_entity(
+        self,
+        value: object,
+        *,
+        detail: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Add a company entity when the value is usable."""
+        canonical_value = _canonical_organization(value)
+        if not canonical_value:
+            return ""
+
+        display_value = _to_text(value) or canonical_value
+        self._add_entity("company", canonical_value, display_value, metadata=metadata)
+        self._add_evidence("company", canonical_value, "company_field", detail, metadata=metadata)
         return canonical_value
 
     def add_place_entity(

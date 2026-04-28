@@ -24,4 +24,8 @@ class ErrorCode(str, Enum):
     NORMALIZATION_BAD_NORMALIZED_DATA = "normalization_bad_normalized_data"
     RELATIONSHIP_UNSUPPORTED_PROVIDER = "relationship_unsupported_provider"
     RELATIONSHIP_BAD_NORMALIZED_DATA = "relationship_bad_normalized_data"
+    GRAPH_BAD_ENTITY = "graph_bad_entity"
+    GRAPH_BAD_RELATIONSHIP = "graph_bad_relationship"
+    GRAPH_RECORD_MISMATCH = "graph_record_mismatch"
+    GRAPH_WRITE_FAILED = "graph_write_failed"
     STORAGE_SAVE_FAILED = "storage_save_failed"

@@ -35,6 +35,7 @@ def test_processing_pipeline_runs_fetch_save_and_normalize(
     assert normalized_record.raw_record_id != ""
     assert normalized_record.status.value == "success"
     assert normalized_record.normalized_data["ip_address"] == "8.8.8.8"
+    assert any(entity.entity_type == "ip" and entity.canonical_value == "8.8.8.8" for entity in normalized_record.entities)
 
 
 def test_processing_pipeline_returns_normalized_error_for_live_provider_failure(
@@ -102,6 +103,7 @@ def test_processing_pipeline_runs_fetch_save_and_normalize_for_crt_sh(
     assert normalized_record.raw_record_id != ""
     assert normalized_record.status.value == "success"
     assert normalized_record.normalized_data["certificates"][0]["common_name"] == "example.com"
+    assert any(entity.entity_type == "domain" and entity.canonical_value == "example.com" for entity in normalized_record.entities)
 
 
 def test_processing_pipeline_runs_fetch_save_and_normalize_for_opensky_aircraft(
@@ -202,6 +204,7 @@ def test_processing_pipeline_runs_fetch_save_and_normalize_for_webhook(
     assert normalized_record.raw_record_id != ""
     assert normalized_record.status.value == "success"
     assert normalized_record.normalized_data["event_type"] == "breach.alert"
+    assert any(entity.entity_type == "domain" and entity.canonical_value == "example.com" for entity in normalized_record.entities)
 
 
 def test_processing_pipeline_runs_fetch_save_and_normalize_for_csv_upload(

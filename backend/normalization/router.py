@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from backend.normalization.crt_sh_normalizer import normalize_crt_sh_record
 from backend.normalization.csv_upload_normalizer import normalize_csv_upload_record
+from backend.normalization.extraction import extract_shared_artifacts
 from backend.normalization.ipinfo_normalizer import normalize_ipinfo_record
 from backend.normalization.manual_input_normalizer import normalize_manual_input_record
 from backend.normalization.nominatim_normalizer import normalize_nominatim_record
@@ -20,32 +21,33 @@ from backend.schemas.storage import SavedRawRecord
 def normalize_saved_raw_record(saved_raw_record: SavedRawRecord) -> NormalizedRecord:
     """Route one saved raw record to the correct provider-specific normalizer."""
     if saved_raw_record.provider == ProviderKind.IPINFO:
-        return normalize_ipinfo_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_ipinfo_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.CRT_SH:
-        return normalize_crt_sh_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_crt_sh_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.NOMINATIM:
-        return normalize_nominatim_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_nominatim_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.OPENSKY:
-        return normalize_opensky_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_opensky_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.WEBHOOK:
-        return normalize_webhook_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_webhook_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.CSV_UPLOAD:
-        return normalize_csv_upload_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_csv_upload_record(saved_raw_record))
 
     if saved_raw_record.provider == ProviderKind.MANUAL_INPUT:
-        return normalize_manual_input_record(saved_raw_record)
+        return extract_shared_artifacts(normalize_manual_input_record(saved_raw_record))
 
     requested_provider = _get_provider_text(saved_raw_record)
     metadata = dict(saved_raw_record.metadata)
     if requested_provider:
         metadata["requested_provider"] = requested_provider
 
-    return NormalizedRecord(
+    return extract_shared_artifacts(
+        NormalizedRecord(
         provider=_get_safe_provider(saved_raw_record),
         source_type=saved_raw_record.source_type,
         raw_record_id=saved_raw_record.record_id,
@@ -57,6 +59,7 @@ def normalize_saved_raw_record(saved_raw_record: SavedRawRecord) -> NormalizedRe
         ),
         normalized_data=None,
         metadata=metadata,
+        )
     )
 
 

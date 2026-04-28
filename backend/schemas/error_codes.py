@@ -21,4 +21,7 @@ class ErrorCode(str, Enum):
     PROVIDER_BAD_RESPONSE = "provider_bad_response"
     NORMALIZATION_UNSUPPORTED_PROVIDER = "normalization_unsupported_provider"
     NORMALIZATION_BAD_RAW_DATA = "normalization_bad_raw_data"
+    NORMALIZATION_BAD_NORMALIZED_DATA = "normalization_bad_normalized_data"
+    RELATIONSHIP_UNSUPPORTED_PROVIDER = "relationship_unsupported_provider"
+    RELATIONSHIP_BAD_NORMALIZED_DATA = "relationship_bad_normalized_data"
     STORAGE_SAVE_FAILED = "storage_save_failed"

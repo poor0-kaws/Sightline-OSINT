@@ -8,6 +8,8 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi import Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
 from backend.relationships import extract_relationships_from_normalized_record
@@ -33,8 +35,12 @@ def build_app(
     app_settings = settings or get_validated_settings()
     service = ingestion_service or IngestionService()
     pipeline = processing_pipeline or ProviderProcessingPipeline(ingestion_service=service)
+    frontend_directory = Path(__file__).parent / "static" / "react"
+    frontend_assets_directory = frontend_directory / "assets"
+    frontend_index_path = frontend_directory / "index.html"
 
     app = FastAPI(title=app_settings.app_name)
+    app.mount("/app/assets", StaticFiles(directory=frontend_assets_directory, check_dir=False), name="app-assets")
 
     @app.exception_handler(APIError)
     async def handle_api_error(_request: Request, error: APIError) -> JSONResponse:
@@ -56,6 +62,19 @@ def build_app(
     async def root() -> JSONResponse:
         """Return a tiny API summary payload."""
         return _json_response(_build_root_payload(app_settings))
+
+    @app.get("/app")
+    async def frontend() -> FileResponse:
+        """Serve the investigation workspace frontend."""
+        if not frontend_index_path.exists():
+            raise APIError(503, "frontend_not_built", "Frontend bundle is missing. Build the React app first.")
+
+        return FileResponse(frontend_index_path)
+
+    @app.get("/app/graph-data")
+    async def graph_data() -> JSONResponse:
+        """Return one demo graph payload for the current frontend workspace."""
+        return _json_response(_build_graph_payload(app_settings))
 
     @app.get("/health")
     async def health() -> JSONResponse:
@@ -167,6 +186,8 @@ def _build_root_payload(settings: Settings) -> dict[str, Any]:
             "/source/raw",
             "/source/normalized",
             "/source/relationships",
+            "/app",
+            "/app/graph-data",
         ],
     }
 
@@ -179,6 +200,202 @@ def _build_health_payload(settings: Settings) -> dict[str, Any]:
         "app_env": settings.app_env,
         "raw_storage_path": settings.raw_storage_path,
         "raw_storage_exists": Path(settings.raw_storage_path).exists(),
+    }
+
+
+def _build_graph_payload(settings: Settings) -> dict[str, Any]:
+    """Return a frontend-ready graph workspace payload."""
+    return {
+        "title": f"{settings.app_name} Graph Workspace",
+        "case": {
+            "caseId": "CASE-041",
+            "scope": "Infrastructure + identity correlation",
+            "status": "ACTIVE",
+        },
+        "legend": [
+            {
+                "label": "Person",
+                "description": "Human identity record",
+                "color": "#d0b36a",
+            },
+            {
+                "label": "Organization",
+                "description": "Company or operating entity",
+                "color": "#6ec5b8",
+            },
+            {
+                "label": "Infrastructure",
+                "description": "Domains, IPs, certificates",
+                "color": "#7a9fb8",
+            },
+            {
+                "label": "Location",
+                "description": "Geographic anchor",
+                "color": "#c76c57",
+            },
+        ],
+        "nodes": [
+            {
+                "id": "person-alice",
+                "label": "Alice Ng",
+                "type": "person",
+                "tier": "Identity",
+                "status": "Tracked",
+                "description": "Primary subject node bridging contact data and employer infrastructure.",
+                "attributes": ["confidence 95", "manual note", "cross-source match"],
+                "color": "#d0b36a",
+                "x": 600,
+                "y": 330,
+                "radius": 18,
+            },
+            {
+                "id": "email-alice",
+                "label": "alice@personalmail.org",
+                "type": "email",
+                "tier": "Contact",
+                "status": "Observed",
+                "description": "Personal mailbox seen across manual input and webhook-like evidence.",
+                "attributes": ["exact identifier", "used in 2 sources"],
+                "color": "#8fc3bb",
+                "x": 420,
+                "y": 250,
+                "radius": 14,
+            },
+            {
+                "id": "phone-alice",
+                "label": "+1 317 555 0101",
+                "type": "phone",
+                "tier": "Contact",
+                "status": "Observed",
+                "description": "Normalized phone number used to strengthen identity confidence.",
+                "attributes": ["normalized digits", "strong signal"],
+                "color": "#8fc3bb",
+                "x": 420,
+                "y": 420,
+                "radius": 14,
+            },
+            {
+                "id": "org-openai",
+                "label": "OpenAI LLC",
+                "type": "organization",
+                "tier": "Entity",
+                "status": "Linked",
+                "description": "Organization node connected to the person and to infrastructure evidence.",
+                "attributes": ["company alias collapsed", "organization node"],
+                "color": "#6ec5b8",
+                "x": 760,
+                "y": 250,
+                "radius": 16,
+            },
+            {
+                "id": "domain-portal",
+                "label": "portal.example.com",
+                "type": "domain",
+                "tier": "Infrastructure",
+                "status": "Watched",
+                "description": "Certificate and DNS-facing domain node used in the investigation.",
+                "attributes": ["crt.sh observed", "domain intelligence"],
+                "color": "#7a9fb8",
+                "x": 860,
+                "y": 380,
+                "radius": 15,
+            },
+            {
+                "id": "ip-google",
+                "label": "8.8.8.8",
+                "type": "ip",
+                "tier": "Infrastructure",
+                "status": "Resolved",
+                "description": "Infrastructure node tied to an organization and geographic anchor.",
+                "attributes": ["ipinfo", "geo-enriched"],
+                "color": "#7a9fb8",
+                "x": 1010,
+                "y": 320,
+                "radius": 14,
+            },
+            {
+                "id": "location-mv",
+                "label": "Mountain View, CA",
+                "type": "location",
+                "tier": "Geospatial",
+                "status": "Derived",
+                "description": "Location node representing the IP geolocation cluster.",
+                "attributes": ["place node", "reverse-geocode ready"],
+                "color": "#c76c57",
+                "x": 1080,
+                "y": 470,
+                "radius": 15,
+            },
+            {
+                "id": "cert-portal",
+                "label": "Cert for portal.example.com",
+                "type": "certificate",
+                "tier": "Infrastructure",
+                "status": "Observed",
+                "description": "Certificate transparency record anchoring the domain relationship.",
+                "attributes": ["crt.sh", "certificate node"],
+                "color": "#7a9fb8",
+                "x": 720,
+                "y": 520,
+                "radius": 14,
+            },
+        ],
+        "edges": [
+            {
+                "from": "person-alice",
+                "to": "email-alice",
+                "label": "uses email",
+                "confidence": 95,
+            },
+            {
+                "from": "person-alice",
+                "to": "phone-alice",
+                "label": "uses phone",
+                "confidence": 95,
+            },
+            {
+                "from": "person-alice",
+                "to": "org-openai",
+                "label": "associated with",
+                "confidence": 80,
+            },
+            {
+                "from": "org-openai",
+                "to": "domain-portal",
+                "label": "operates",
+                "confidence": 74,
+            },
+            {
+                "from": "cert-portal",
+                "to": "domain-portal",
+                "label": "mentions domain",
+                "confidence": 95,
+            },
+            {
+                "from": "domain-portal",
+                "to": "ip-google",
+                "label": "points to",
+                "confidence": 76,
+            },
+            {
+                "from": "ip-google",
+                "to": "org-openai",
+                "label": "belongs to org",
+                "confidence": 90,
+            },
+            {
+                "from": "ip-google",
+                "to": "location-mv",
+                "label": "located in",
+                "confidence": 85,
+            },
+        ],
+        "activity": [
+            {"time": "08:12", "text": "Manual intake linked Alice Ng to OpenAI LLC."},
+            {"time": "08:19", "text": "crt.sh evidence expanded portal.example.com certificate coverage."},
+            {"time": "08:27", "text": "IPinfo geolocation anchored 8.8.8.8 to Mountain View, CA."},
+            {"time": "08:32", "text": "Graph view refreshed with infrastructure and identity overlays."},
+        ],
     }
 
 

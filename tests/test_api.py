@@ -35,6 +35,30 @@ def test_root_endpoint_lists_available_routes() -> None:
 
     assert response.status_code == 200
     assert "/source/normalized" in response.json()["routes"]
+    assert "/app" in response.json()["routes"]
+
+
+def test_frontend_route_serves_the_graph_workspace_html() -> None:
+    """The frontend should load as a real HTML page."""
+    response = _request(build_app(), "GET", "/app")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Sightline Fusion" in response.text
+    assert 'id="root"' in response.text
+    assert "/app/assets/app.js" in response.text
+
+
+def test_frontend_graph_data_route_returns_nodes_edges_and_legend() -> None:
+    """The frontend data route should provide the workspace payload."""
+    response = _request(build_app(), "GET", "/app/graph-data")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["title"].endswith("Graph Workspace")
+    assert len(payload["nodes"]) >= 5
+    assert len(payload["edges"]) >= 5
+    assert any(item["label"] == "Person" for item in payload["legend"])
 
 
 def test_providers_endpoint_lists_supported_providers() -> None:

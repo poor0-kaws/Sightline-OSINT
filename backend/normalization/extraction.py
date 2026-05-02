@@ -508,6 +508,7 @@ def _build_output_record(
     return NormalizedRecord(
         provider=normalized_record.provider,
         source_type=normalized_record.source_type,
+        case_id=normalized_record.case_id,
         raw_record_id=normalized_record.raw_record_id,
         query=normalized_record.query,
         status=normalized_record.status,
@@ -531,6 +532,7 @@ def _build_bad_normalized_data_record(
     return NormalizedRecord(
         provider=normalized_record.provider,
         source_type=normalized_record.source_type,
+        case_id=normalized_record.case_id,
         raw_record_id=normalized_record.raw_record_id,
         query=normalized_record.query,
         status=FetchStatus.ERROR,

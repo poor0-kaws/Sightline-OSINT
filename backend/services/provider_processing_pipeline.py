@@ -26,6 +26,7 @@ class ProviderProcessingPipeline:
             return NormalizedRecord(
                 provider=self._extract_provider(source_request),
                 source_type=self._extract_source_type(source_request),
+                case_id=self._extract_case_id(source_request),
                 raw_record_id="",
                 query=self._extract_query(source_request),
                 status=FetchStatus.ERROR,
@@ -62,3 +63,12 @@ class ProviderProcessingPipeline:
     def _extract_query(self, source_request: object) -> object:
         """Read the original query if it exists."""
         return getattr(source_request, "query", None)
+
+    def _extract_case_id(self, source_request: object) -> str:
+        """Read the case id from the request, or fall back safely."""
+        source_config = getattr(source_request, "source", None)
+        case_id = getattr(source_config, "case_id", "")
+        if not isinstance(case_id, str):
+            return "default"
+
+        return case_id.strip() or "default"

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 from backend.normalization import NormalizedEntity
 from backend.normalization import NormalizedRecord
 from backend.relationships import EntityReference
@@ -14,6 +17,77 @@ from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceRequest
 from backend.schemas.ingestion import SourceKind
+from backend.settings import Settings
+
+
+def test_graph_repository_factory_builds_memory_repository() -> None:
+    """Memory mode should create the local repository used by tests and development."""
+    from backend.graph import InMemoryGraphRepository
+    from backend.graph import build_graph_repository
+
+    repository = build_graph_repository(Settings(graph_repository_kind="memory"))
+
+    assert isinstance(repository, InMemoryGraphRepository)
+
+
+def test_graph_repository_factory_builds_neo4j_repository_with_optional_driver(monkeypatch) -> None:
+    """Neo4j mode should pass settings into the optional Neo4j driver."""
+    from backend.graph import Neo4jGraphRepository
+    from backend.graph import build_graph_repository
+
+    class FakeGraphDatabase:
+        @staticmethod
+        def driver(url: str, auth: tuple[str, str] | None = None) -> dict[str, object]:
+            return {"url": url, "auth": auth}
+
+    monkeypatch.setitem(sys.modules, "neo4j", SimpleNamespace(GraphDatabase=FakeGraphDatabase))
+
+    repository = build_graph_repository(
+        Settings(
+            graph_repository_kind="neo4j",
+            neo4j_url="bolt://graph.example:7687",
+            neo4j_username="neo4j",
+            neo4j_password="password",
+        )
+    )
+
+    assert isinstance(repository, Neo4jGraphRepository)
+    assert repository.driver == {
+        "url": "bolt://graph.example:7687",
+        "auth": ("neo4j", "password"),
+    }
+
+
+def test_in_memory_graph_repository_reads_graph_with_case_filter() -> None:
+    """Graph reads should respect case ids stored in metadata."""
+    from backend.graph import GraphNode
+    from backend.graph import InMemoryGraphRepository
+
+    repository = InMemoryGraphRepository()
+    repository.write_graph_batch(
+        nodes=[
+            GraphNode(
+                entity_key="case-alpha:person:alice",
+                entity_type="person",
+                canonical_value="alice",
+                display_value="Alice",
+                metadata={"case_id": "case-alpha"},
+            ),
+            GraphNode(
+                entity_key="case-beta:person:bob",
+                entity_type="person",
+                canonical_value="bob",
+                display_value="Bob",
+                metadata={"case_id": "case-beta"},
+            ),
+        ],
+        relationships=[],
+    )
+
+    graph_snapshot = repository.read_graph(case_id="case-alpha")
+
+    assert len(graph_snapshot.nodes) == 1
+    assert graph_snapshot.nodes[0].display_value == "Alice"
 
 
 def test_graph_write_service_dedupes_nodes_and_relationships_before_writing() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.normalization.schemas import NormalizedEntity
 from backend.normalization.schemas import NormalizedRecord
 from backend.resolution.schemas import EntityType
 from backend.resolution.schemas import MatchCandidate
@@ -18,16 +19,29 @@ def build_match_candidates_from_normalized_record(normalized_record: NormalizedR
     if normalized_record.status != FetchStatus.SUCCESS:
         return []
 
+    candidates = _build_entity_exact_candidates(normalized_record)
+
     if normalized_record.provider == ProviderKind.IPINFO:
-        return _build_ipinfo_candidates(normalized_record)
+        candidates.extend(_build_ipinfo_candidates(normalized_record))
+        return _dedupe_candidates(candidates)
 
     if normalized_record.provider == ProviderKind.CRT_SH:
-        return _build_crt_sh_candidates(normalized_record)
+        candidates.extend(_build_crt_sh_candidates(normalized_record))
+        return _dedupe_candidates(candidates)
 
     if normalized_record.provider == ProviderKind.MANUAL_INPUT:
-        return _build_manual_input_candidates(normalized_record)
+        candidates.extend(_build_manual_input_candidates(normalized_record))
+        return _dedupe_candidates(candidates)
 
-    return []
+    if normalized_record.provider == ProviderKind.WEBHOOK:
+        candidates.extend(_build_webhook_candidates(normalized_record))
+        return _dedupe_candidates(candidates)
+
+    if normalized_record.provider == ProviderKind.CSV_UPLOAD:
+        candidates.extend(_build_csv_upload_candidates(normalized_record))
+        return _dedupe_candidates(candidates)
+
+    return _dedupe_candidates(candidates)
 
 
 def build_domain_candidate(*, record_id: str, domain_value: str, display_value: str = "") -> MatchCandidate | None:
@@ -40,7 +54,7 @@ def build_domain_candidate(*, record_id: str, domain_value: str, display_value: 
         record_id=record_id,
         entity_type=EntityType.DOMAIN,
         canonical_value=canonical_domain,
-        display_value=display_value.strip() if isinstance(display_value, str) and display_value.strip() else canonical_domain,
+        display_value=_display_value_or_default(display_value, canonical_domain),
         attributes={},
     )
 
@@ -55,7 +69,7 @@ def build_ip_candidate(*, record_id: str, ip_value: str, display_value: str = ""
         record_id=record_id,
         entity_type=EntityType.IP,
         canonical_value=canonical_ip,
-        display_value=display_value.strip() if isinstance(display_value, str) and display_value.strip() else canonical_ip,
+        display_value=_display_value_or_default(display_value, canonical_ip),
         attributes={},
     )
 
@@ -110,6 +124,51 @@ def _build_ipinfo_candidates(normalized_record: NormalizedRecord) -> list[MatchC
     return [candidate]
 
 
+def _build_entity_exact_candidates(normalized_record: NormalizedRecord) -> list[MatchCandidate]:
+    """Extract exact-match candidates from shared normalized entities."""
+    candidates: list[MatchCandidate] = []
+
+    for index, entity in enumerate(normalized_record.entities):
+        candidate = _build_candidate_from_entity(
+            raw_record_id=normalized_record.raw_record_id,
+            index=index,
+            entity=entity,
+        )
+        if candidate is None:
+            continue
+
+        candidates.append(candidate)
+
+    return candidates
+
+
+def _build_candidate_from_entity(
+    *,
+    raw_record_id: str,
+    index: int,
+    entity: NormalizedEntity,
+) -> MatchCandidate | None:
+    """Build one exact-match candidate from a normalized entity."""
+    entity_type = entity.entity_type.strip().lower()
+    candidate_record_id = f"{raw_record_id}:entity:{index}"
+
+    if entity_type == EntityType.DOMAIN.value:
+        return build_domain_candidate(
+            record_id=candidate_record_id,
+            domain_value=entity.canonical_value,
+            display_value=entity.display_value,
+        )
+
+    if entity_type == EntityType.IP.value:
+        return build_ip_candidate(
+            record_id=candidate_record_id,
+            ip_value=entity.canonical_value,
+            display_value=entity.display_value,
+        )
+
+    return None
+
+
 def _build_crt_sh_candidates(normalized_record: NormalizedRecord) -> list[MatchCandidate]:
     """Extract domain candidates from crt.sh normalized certificates."""
     if not isinstance(normalized_record.normalized_data, dict):
@@ -162,6 +221,51 @@ def _build_manual_input_candidates(normalized_record: NormalizedRecord) -> list[
         return []
 
     return [candidate]
+
+
+def _build_webhook_candidates(normalized_record: NormalizedRecord) -> list[MatchCandidate]:
+    """Extract person candidates from webhook normalized payloads."""
+    if not isinstance(normalized_record.normalized_data, dict):
+        return []
+
+    payload = normalized_record.normalized_data.get("payload")
+    if not isinstance(payload, dict):
+        return []
+
+    candidate = build_person_candidate(
+        record_id=f"{normalized_record.raw_record_id}:payload:person",
+        fields=payload,
+    )
+    if candidate is None:
+        return []
+
+    return [candidate]
+
+
+def _build_csv_upload_candidates(normalized_record: NormalizedRecord) -> list[MatchCandidate]:
+    """Extract one person candidate per usable CSV row."""
+    if not isinstance(normalized_record.normalized_data, dict):
+        return []
+
+    rows = normalized_record.normalized_data.get("rows")
+    if not isinstance(rows, list):
+        return []
+
+    candidates: list[MatchCandidate] = []
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return []
+
+        candidate = build_person_candidate(
+            record_id=f"{normalized_record.raw_record_id}:row:{row_index}:person",
+            fields=row,
+        )
+        if candidate is None:
+            continue
+
+        candidates.append(candidate)
+
+    return candidates
 
 
 def _extract_certificate_domains(certificate: dict[str, Any]) -> list[str]:
@@ -254,3 +358,64 @@ def _list_text_values(fields: dict[str, Any], *keys: str) -> list[str]:
                 collected_values.append(cleaned_item)
 
     return collected_values
+
+
+def _dedupe_candidates(candidates: list[MatchCandidate]) -> list[MatchCandidate]:
+    """Keep the first readable candidate for each comparable entity value."""
+    deduped_candidates: list[MatchCandidate] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for candidate in candidates:
+        key = (
+            _entity_type_text(candidate.entity_type),
+            candidate.canonical_value.strip().lower(),
+            _stable_person_key(candidate),
+        )
+        if key in seen_keys:
+            continue
+
+        seen_keys.add(key)
+        deduped_candidates.append(candidate)
+
+    return deduped_candidates
+
+
+def _stable_person_key(candidate: MatchCandidate) -> str:
+    """Build a dedupe key for person candidates without hiding different people."""
+    if candidate.entity_type != EntityType.PERSON:
+        return ""
+
+    attributes = candidate.attributes if isinstance(candidate.attributes, dict) else {}
+    parts = [
+        str(attributes.get("full_name", "")).strip().lower(),
+        ",".join(str(value).strip().lower() for value in attributes.get("emails", []) if isinstance(value, str)),
+        ",".join(
+            str(value).strip().lower()
+            for value in attributes.get("phone_numbers", [])
+            if isinstance(value, str)
+        ),
+    ]
+    return "|".join(parts)
+
+
+def _entity_type_text(value: object) -> str:
+    """Return one safe entity-type string for dedupe keys."""
+    if hasattr(value, "value"):
+        value = value.value
+
+    if not isinstance(value, str):
+        return ""
+
+    return value.strip().lower()
+
+
+def _display_value_or_default(display_value: str, default_value: str) -> str:
+    """Return a readable display value with a safe fallback."""
+    if not isinstance(display_value, str):
+        return default_value
+
+    cleaned_value = display_value.strip()
+    if not cleaned_value:
+        return default_value
+
+    return cleaned_value

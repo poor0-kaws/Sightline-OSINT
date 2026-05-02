@@ -18,6 +18,9 @@ dev = [
     "pytest>=8.0",
     "uvicorn>=0.30",
 ]
+graph = [
+    "neo4j>=5.20",
+]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "tests*"]

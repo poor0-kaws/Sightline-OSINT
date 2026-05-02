@@ -38,6 +38,7 @@ IP_ORG_CONFIDENCE = 90
 IP_LOCATION_CONFIDENCE = 85
 CERTIFICATE_DOMAIN_CONFIDENCE = 95
 CERTIFICATE_ISSUER_CONFIDENCE = 90
+AIRCRAFT_PLACE_CONFIDENCE = 85
 
 
 def extract_relationships_from_normalized_record(normalized_record: NormalizedRecord) -> RelationshipExtractionResult:
@@ -64,7 +65,7 @@ def extract_relationships_from_normalized_record(normalized_record: NormalizedRe
         return build_no_results_result(normalized_record)
 
     if normalized_record.provider == ProviderKind.OPENSKY:
-        return build_no_results_result(normalized_record)
+        return _extract_opensky_relationships(normalized_record)
 
     return build_error_result(
         normalized_record,
@@ -317,6 +318,53 @@ def _extract_csv_upload_relationships(normalized_record: NormalizedRecord) -> Re
                 record_scope=f"{normalized_record.raw_record_id}:row:{row_index}",
                 evidence_record_id=normalized_record.raw_record_id,
                 fields=row,
+            )
+        )
+
+    if not relationships:
+        return build_no_results_result(normalized_record)
+
+    return build_success_result(normalized_record, relationships=relationships)
+
+
+def _extract_opensky_relationships(normalized_record: NormalizedRecord) -> RelationshipExtractionResult:
+    """Extract aircraft-location edges from OpenSky shared candidates."""
+    relationships: list[ExtractedRelationship] = []
+
+    for index, candidate in enumerate(normalized_record.relationship_candidates):
+        relationship_type = normalize_text(candidate.relationship_type)
+        if relationship_type != "observed_over":
+            continue
+
+        if candidate.source_entity_type != "aircraft" or candidate.target_entity_type != "place":
+            continue
+
+        aircraft_value = normalize_text(candidate.source_canonical_value)
+        place_value = normalize_text(candidate.target_canonical_value)
+        if not aircraft_value or not place_value:
+            continue
+
+        aircraft_entity = build_entity_reference(
+            record_scope=f"{normalized_record.raw_record_id}:opensky:{index}",
+            entity_type=EntityType.AIRCRAFT,
+            canonical_value=aircraft_value,
+            display_value=aircraft_value,
+        )
+        place_entity = build_entity_reference(
+            record_scope=f"{normalized_record.raw_record_id}:opensky:{index}",
+            entity_type=EntityType.PLACE,
+            canonical_value=place_value,
+            display_value=place_value,
+        )
+        relationships.append(
+            build_relationship(
+                relationship_id=f"{normalized_record.raw_record_id}:aircraft-place:{index}",
+                relationship_type=RelationshipType.AIRCRAFT_OBSERVED_OVER,
+                from_entity=aircraft_entity,
+                to_entity=place_entity,
+                confidence_percent=AIRCRAFT_PLACE_CONFIDENCE,
+                evidence_record_id=normalized_record.raw_record_id,
+                metadata=dict(candidate.metadata),
             )
         )
 

@@ -50,6 +50,7 @@ class NormalizedRecord(BaseModel):
 
     provider: ProviderKind = Field(default=ProviderKind.IPINFO, description="Which provider the raw record came from")
     source_type: SourceKind = Field(default=SourceKind.API, description="Which source family created the raw record")
+    case_id: str = Field(default="default", description="Investigation case id")
     raw_record_id: str = Field(default="", description="Saved raw record id")
     query: Any = Field(default="", description="Original query that led to the raw record")
     status: FetchStatus = Field(default=FetchStatus.SUCCESS, description="Normalization status")

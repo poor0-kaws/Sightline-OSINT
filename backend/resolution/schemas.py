@@ -64,3 +64,18 @@ class ResolutionResult(BaseModel):
     confidence_percent: int = Field(default=0, description="Final confidence score from 0 to 100")
     decision: ResolutionDecision = Field(default=ResolutionDecision.NO_MATCH, description="Resolution outcome")
     reasons: list[MatchReason] = Field(default_factory=list, description="Scoring reasons that raised confidence")
+
+
+class ResolutionBatchResult(BaseModel):
+    """Resolution output for many saved records at once."""
+
+    status: str = Field(default="success", description="Batch status")
+    source_record_count: int = Field(default=0, description="How many normalized records were scanned")
+    candidate_count: int = Field(default=0, description="How many comparable candidates were found")
+    comparison_count: int = Field(default=0, description="How many candidate pairs were compared")
+    candidates: list[MatchCandidate] = Field(
+        default_factory=list,
+        description="Comparable entities found in the records",
+    )
+    matches: list[ResolutionResult] = Field(default_factory=list, description="Pairwise resolution decisions")
+    summary: dict[str, int] = Field(default_factory=dict, description="Counts by decision")

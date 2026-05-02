@@ -37,6 +37,7 @@ class FileRawStorageRepository:
 
         saved_record = SavedRawRecord(
             record_id=uuid4().hex,
+            case_id=clean_text(getattr(source_config, "case_id", "")) or "default",
             source_id=source_config.source_id,
             provider=raw_response.provider,
             source_type=raw_response.source_type,
@@ -83,16 +84,20 @@ class FileRawStorageRepository:
 
         raise FileNotFoundError(f"No saved raw record found for id: {safe_record_id}")
 
-    def list_raw_responses(self) -> list[SavedRawRecord]:
+    def list_raw_responses(self, case_id: str = "") -> list[SavedRawRecord]:
         """Return all saved raw records in a stable order."""
         if not self.root_path.exists():
             return []
 
+        cleaned_case_id = clean_text(case_id)
         saved_records: list[SavedRawRecord] = []
 
         for file_path in sorted(self.root_path.glob("*.json")):
             saved_record = self._try_load_saved_record(file_path)
             if saved_record is None:
+                continue
+
+            if cleaned_case_id and saved_record.case_id != cleaned_case_id:
                 continue
 
             saved_records.append(saved_record)
@@ -114,6 +119,7 @@ class FileRawStorageRepository:
 
         return SavedRawRecord(
             record_id=clean_text(payload.get("record_id")),
+            case_id=clean_text(payload.get("case_id")) or "default",
             source_id=clean_text(payload.get("source_id")),
             provider=self._coerce_provider(payload.get("provider")),
             source_type=self._coerce_source_type(payload.get("source_type")),
@@ -170,11 +176,12 @@ class FileRawStorageRepository:
     def _build_file_name(self, saved_record: SavedRawRecord) -> str:
         """Build a readable JSON filename for one saved record."""
         safe_provider = self._slug_text(saved_record.provider.value)
+        safe_case_id = self._slug_text(saved_record.case_id)
         safe_source_id = self._slug_text(saved_record.source_id)
         safe_fetched_at = self._slug_text(saved_record.fetched_at)
         short_record_id = saved_record.record_id[:8]
 
-        return f"{safe_provider}__{safe_source_id}__{safe_fetched_at}__{short_record_id}.json"
+        return f"{safe_case_id}__{safe_provider}__{safe_source_id}__{safe_fetched_at}__{short_record_id}.json"
 
     def _slug_text(self, value: str) -> str:
         """Turn text into a simple filename-safe chunk."""
@@ -223,10 +230,10 @@ def load_raw_response(record_id: str) -> SavedRawRecord:
     return repository.load_raw_response(record_id)
 
 
-def list_raw_responses() -> list[SavedRawRecord]:
+def list_raw_responses(case_id: str = "") -> list[SavedRawRecord]:
     """List all raw responses from the default storage path."""
     repository = FileRawStorageRepository(get_settings().raw_storage_path)
-    return repository.list_raw_responses()
+    return repository.list_raw_responses(case_id=case_id)
 
 
 def save_raw_response_safely(

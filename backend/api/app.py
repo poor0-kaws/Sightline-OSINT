@@ -4,25 +4,34 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi import Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
 
+from backend.api.graph_workspace import build_graph_workspace_payload_from_snapshot
+from backend.cases import build_case_summaries
+from backend.graph import GraphWriteService
+from backend.graph import build_graph_repository
+from backend.graph.repository import GraphRepositoryProtocol
 from backend.relationships import extract_relationships_from_normalized_record
+from backend.resolution import resolve_saved_raw_records
 from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceKind
 from backend.schemas.ingestion import SourceRequest
+from backend.services.graph_processing_pipeline import GraphProcessingPipeline
+from backend.services.graph_rebuild_service import rebuild_graph_from_saved_raw_records
 from backend.services.ingestion_service import IngestionService
 from backend.services.provider_processing_pipeline import ProviderProcessingPipeline
 from backend.settings import Settings
 from backend.settings import get_validated_settings
 from backend.storage import list_raw_responses
 from backend.storage import load_raw_response
+from backend.utils.time import utc_now_iso
 
 
 def build_app(
@@ -30,17 +39,49 @@ def build_app(
     settings: Settings | None = None,
     ingestion_service: IngestionService | None = None,
     processing_pipeline: ProviderProcessingPipeline | None = None,
+    graph_repository: GraphRepositoryProtocol | None = None,
+    graph_processing_pipeline: GraphProcessingPipeline | None = None,
 ) -> FastAPI:
     """Build the FastAPI app on top of the current backend services."""
     app_settings = settings or get_validated_settings()
     service = ingestion_service or IngestionService()
     pipeline = processing_pipeline or ProviderProcessingPipeline(ingestion_service=service)
+    repository = graph_repository or build_graph_repository(app_settings)
+    graph_write_service = GraphWriteService(repository)
+    graph_pipeline = graph_processing_pipeline or GraphProcessingPipeline(
+        repository=repository,
+        provider_processing_pipeline=pipeline,
+        graph_write_service=graph_write_service,
+    )
     frontend_directory = Path(__file__).parent / "static" / "react"
     frontend_assets_directory = frontend_directory / "assets"
     frontend_index_path = frontend_directory / "index.html"
 
     app = FastAPI(title=app_settings.app_name)
     app.mount("/app/assets", StaticFiles(directory=frontend_assets_directory, check_dir=False), name="app-assets")
+    rate_limit_state: dict[str, list[float]] = {}
+
+    @app.middleware("http")
+    async def protect_api(request: Request, call_next: object) -> object:
+        """Apply simple production guardrails before route handlers run."""
+        size_error = _check_request_size(request, app_settings)
+        if size_error is not None:
+            _write_audit_log(app_settings, request=request, status_code=413, error_code="request_too_large")
+            return size_error
+
+        auth_error = _check_auth(request, app_settings)
+        if auth_error is not None:
+            _write_audit_log(app_settings, request=request, status_code=401, error_code="unauthorized")
+            return auth_error
+
+        rate_limit_error = _check_rate_limit(request, app_settings, rate_limit_state)
+        if rate_limit_error is not None:
+            _write_audit_log(app_settings, request=request, status_code=429, error_code="rate_limited")
+            return rate_limit_error
+
+        response = await call_next(request)
+        _write_audit_log(app_settings, request=request, status_code=response.status_code)
+        return response
 
     @app.exception_handler(APIError)
     async def handle_api_error(_request: Request, error: APIError) -> JSONResponse:
@@ -72,9 +113,25 @@ def build_app(
         return FileResponse(frontend_index_path)
 
     @app.get("/app/graph-data")
-    async def graph_data() -> JSONResponse:
-        """Return one demo graph payload for the current frontend workspace."""
-        return _json_response(_build_graph_payload(app_settings))
+    async def graph_data(request: Request) -> JSONResponse:
+        """Return graph workspace data built from saved raw records."""
+        case_id = _case_id_from_request(request)
+        saved_raw_records = list_raw_responses(case_id=case_id)
+        graph_snapshot = repository.read_graph(case_id=case_id)
+        if saved_raw_records and not graph_snapshot.nodes:
+            rebuild_graph_from_saved_raw_records(
+                saved_raw_records=saved_raw_records,
+                graph_write_service=graph_write_service,
+            )
+            graph_snapshot = repository.read_graph(case_id=case_id)
+
+        return _json_response(
+            build_graph_workspace_payload_from_snapshot(
+                settings=app_settings,
+                saved_raw_records=saved_raw_records,
+                graph_snapshot=graph_snapshot,
+            )
+        )
 
     @app.get("/health")
     async def health() -> JSONResponse:
@@ -92,10 +149,15 @@ def build_app(
         parsed_provider = _parse_provider_text(provider)
         return _json_response({"preview": service.preview_provider_response(parsed_provider)})
 
+    @app.get("/cases")
+    async def cases() -> JSONResponse:
+        """Return known investigation cases from saved raw records."""
+        return _json_response({"cases": build_case_summaries(list_raw_responses())})
+
     @app.get("/records/raw")
-    async def raw_records() -> JSONResponse:
+    async def raw_records(request: Request) -> JSONResponse:
         """Return all saved raw records."""
-        return _json_response({"records": list_raw_responses()})
+        return _json_response({"records": list_raw_responses(case_id=_case_id_from_request(request))})
 
     @app.get("/records/raw/{record_id}")
     async def raw_record(record_id: str) -> JSONResponse:
@@ -111,6 +173,13 @@ def build_app(
 
         return _json_response({"record": saved_raw_record})
 
+    @app.get("/resolution/matches")
+    async def resolution_matches(request: Request) -> JSONResponse:
+        """Resolve comparable entities across saved raw records."""
+        return _json_response(
+            {"resolution": resolve_saved_raw_records(list_raw_responses(case_id=_case_id_from_request(request)))}
+        )
+
     @app.post("/source/raw")
     async def source_raw(request: Request) -> JSONResponse:
         """Run one raw source request and return the raw response plus save details."""
@@ -120,6 +189,20 @@ def build_app(
             {
                 "response": raw_response,
                 "saved_raw_record_id": saved_raw_record.record_id if saved_raw_record is not None else "",
+            }
+        )
+
+    @app.post("/source/resolution")
+    async def source_resolution(request: Request) -> JSONResponse:
+        """Run one source request, then resolve it against saved records."""
+        source_request = _parse_source_request(await _read_json_body(request), app_settings)
+        normalized_record = pipeline.run(source_request)
+        return _json_response(
+            {
+                "record": normalized_record,
+                "resolution": resolve_saved_raw_records(
+                    list_raw_responses(case_id=source_request.source.case_id)
+                ),
             }
         )
 
@@ -139,6 +222,61 @@ def build_app(
             {
                 "record": normalized_record,
                 "relationships": relationship_result,
+            }
+        )
+
+    @app.post("/source/graph")
+    async def source_graph(request: Request) -> JSONResponse:
+        """Run one fetch-save-normalize-relationships-graph-write request."""
+        source_request = _parse_source_request(await _read_json_body(request), app_settings)
+        return _json_response({"graph_write": graph_pipeline.run(source_request)})
+
+    @app.post("/source/full")
+    async def source_full(request: Request) -> JSONResponse:
+        """Run ingest, normalize, resolve, relationships, graph write, and graph read."""
+        source_request = _parse_source_request(await _read_json_body(request), app_settings)
+        normalized_record = pipeline.run(source_request)
+        relationship_result = extract_relationships_from_normalized_record(normalized_record)
+        graph_write = graph_write_service.write_graph_artifacts(normalized_record, relationship_result)
+        saved_raw_records = list_raw_responses(case_id=source_request.source.case_id)
+        graph_snapshot = repository.read_graph(case_id=source_request.source.case_id)
+        return _json_response(
+            {
+                "record": normalized_record,
+                "resolution": resolve_saved_raw_records(saved_raw_records),
+                "relationships": relationship_result,
+                "graph_write": graph_write,
+                "graph": graph_snapshot,
+            }
+        )
+
+    @app.get("/graph/data")
+    async def graph_raw_data(request: Request) -> JSONResponse:
+        """Return raw graph repository data for tools and tests."""
+        return _json_response({"graph": repository.read_graph(case_id=_case_id_from_request(request))})
+
+    @app.get("/graph/status")
+    async def graph_status(request: Request) -> JSONResponse:
+        """Return graph repository status counts."""
+        graph_snapshot = repository.read_graph(case_id=_case_id_from_request(request))
+        return _json_response(
+            {
+                "graph_repository_kind": app_settings.graph_repository_kind,
+                "nodes": len(graph_snapshot.nodes),
+                "relationships": len(graph_snapshot.relationships),
+            }
+        )
+
+    @app.post("/graph/rebuild")
+    async def graph_rebuild(request: Request) -> JSONResponse:
+        """Replay saved raw records into the configured graph repository."""
+        case_id = _case_id_from_request(request)
+        return _json_response(
+            {
+                "graph_rebuild": rebuild_graph_from_saved_raw_records(
+                    saved_raw_records=list_raw_responses(case_id=case_id),
+                    graph_write_service=graph_write_service,
+                )
             }
         )
 
@@ -181,11 +319,19 @@ def _build_root_payload(settings: Settings) -> dict[str, Any]:
             "/health",
             "/providers",
             "/providers/{provider}/preview",
+            "/cases",
             "/records/raw",
             "/records/raw/{record_id}",
+            "/resolution/matches",
             "/source/raw",
+            "/source/resolution",
             "/source/normalized",
             "/source/relationships",
+            "/source/graph",
+            "/source/full",
+            "/graph/data",
+            "/graph/status",
+            "/graph/rebuild",
             "/app",
             "/app/graph-data",
         ],
@@ -200,202 +346,6 @@ def _build_health_payload(settings: Settings) -> dict[str, Any]:
         "app_env": settings.app_env,
         "raw_storage_path": settings.raw_storage_path,
         "raw_storage_exists": Path(settings.raw_storage_path).exists(),
-    }
-
-
-def _build_graph_payload(settings: Settings) -> dict[str, Any]:
-    """Return a frontend-ready graph workspace payload."""
-    return {
-        "title": f"{settings.app_name} Graph Workspace",
-        "case": {
-            "caseId": "CASE-041",
-            "scope": "Infrastructure + identity correlation",
-            "status": "ACTIVE",
-        },
-        "legend": [
-            {
-                "label": "Person",
-                "description": "Human identity record",
-                "color": "#d0b36a",
-            },
-            {
-                "label": "Organization",
-                "description": "Company or operating entity",
-                "color": "#6ec5b8",
-            },
-            {
-                "label": "Infrastructure",
-                "description": "Domains, IPs, certificates",
-                "color": "#7a9fb8",
-            },
-            {
-                "label": "Location",
-                "description": "Geographic anchor",
-                "color": "#c76c57",
-            },
-        ],
-        "nodes": [
-            {
-                "id": "person-alice",
-                "label": "Alice Ng",
-                "type": "person",
-                "tier": "Identity",
-                "status": "Tracked",
-                "description": "Primary subject node bridging contact data and employer infrastructure.",
-                "attributes": ["confidence 95", "manual note", "cross-source match"],
-                "color": "#d0b36a",
-                "x": 600,
-                "y": 330,
-                "radius": 18,
-            },
-            {
-                "id": "email-alice",
-                "label": "alice@personalmail.org",
-                "type": "email",
-                "tier": "Contact",
-                "status": "Observed",
-                "description": "Personal mailbox seen across manual input and webhook-like evidence.",
-                "attributes": ["exact identifier", "used in 2 sources"],
-                "color": "#8fc3bb",
-                "x": 420,
-                "y": 250,
-                "radius": 14,
-            },
-            {
-                "id": "phone-alice",
-                "label": "+1 317 555 0101",
-                "type": "phone",
-                "tier": "Contact",
-                "status": "Observed",
-                "description": "Normalized phone number used to strengthen identity confidence.",
-                "attributes": ["normalized digits", "strong signal"],
-                "color": "#8fc3bb",
-                "x": 420,
-                "y": 420,
-                "radius": 14,
-            },
-            {
-                "id": "org-openai",
-                "label": "OpenAI LLC",
-                "type": "organization",
-                "tier": "Entity",
-                "status": "Linked",
-                "description": "Organization node connected to the person and to infrastructure evidence.",
-                "attributes": ["company alias collapsed", "organization node"],
-                "color": "#6ec5b8",
-                "x": 760,
-                "y": 250,
-                "radius": 16,
-            },
-            {
-                "id": "domain-portal",
-                "label": "portal.example.com",
-                "type": "domain",
-                "tier": "Infrastructure",
-                "status": "Watched",
-                "description": "Certificate and DNS-facing domain node used in the investigation.",
-                "attributes": ["crt.sh observed", "domain intelligence"],
-                "color": "#7a9fb8",
-                "x": 860,
-                "y": 380,
-                "radius": 15,
-            },
-            {
-                "id": "ip-google",
-                "label": "8.8.8.8",
-                "type": "ip",
-                "tier": "Infrastructure",
-                "status": "Resolved",
-                "description": "Infrastructure node tied to an organization and geographic anchor.",
-                "attributes": ["ipinfo", "geo-enriched"],
-                "color": "#7a9fb8",
-                "x": 1010,
-                "y": 320,
-                "radius": 14,
-            },
-            {
-                "id": "location-mv",
-                "label": "Mountain View, CA",
-                "type": "location",
-                "tier": "Geospatial",
-                "status": "Derived",
-                "description": "Location node representing the IP geolocation cluster.",
-                "attributes": ["place node", "reverse-geocode ready"],
-                "color": "#c76c57",
-                "x": 1080,
-                "y": 470,
-                "radius": 15,
-            },
-            {
-                "id": "cert-portal",
-                "label": "Cert for portal.example.com",
-                "type": "certificate",
-                "tier": "Infrastructure",
-                "status": "Observed",
-                "description": "Certificate transparency record anchoring the domain relationship.",
-                "attributes": ["crt.sh", "certificate node"],
-                "color": "#7a9fb8",
-                "x": 720,
-                "y": 520,
-                "radius": 14,
-            },
-        ],
-        "edges": [
-            {
-                "from": "person-alice",
-                "to": "email-alice",
-                "label": "uses email",
-                "confidence": 95,
-            },
-            {
-                "from": "person-alice",
-                "to": "phone-alice",
-                "label": "uses phone",
-                "confidence": 95,
-            },
-            {
-                "from": "person-alice",
-                "to": "org-openai",
-                "label": "associated with",
-                "confidence": 80,
-            },
-            {
-                "from": "org-openai",
-                "to": "domain-portal",
-                "label": "operates",
-                "confidence": 74,
-            },
-            {
-                "from": "cert-portal",
-                "to": "domain-portal",
-                "label": "mentions domain",
-                "confidence": 95,
-            },
-            {
-                "from": "domain-portal",
-                "to": "ip-google",
-                "label": "points to",
-                "confidence": 76,
-            },
-            {
-                "from": "ip-google",
-                "to": "org-openai",
-                "label": "belongs to org",
-                "confidence": 90,
-            },
-            {
-                "from": "ip-google",
-                "to": "location-mv",
-                "label": "located in",
-                "confidence": 85,
-            },
-        ],
-        "activity": [
-            {"time": "08:12", "text": "Manual intake linked Alice Ng to OpenAI LLC."},
-            {"time": "08:19", "text": "crt.sh evidence expanded portal.example.com certificate coverage."},
-            {"time": "08:27", "text": "IPinfo geolocation anchored 8.8.8.8 to Mountain View, CA."},
-            {"time": "08:32", "text": "Graph view refreshed with infrastructure and identity overlays."},
-        ],
     }
 
 
@@ -417,6 +367,7 @@ def _parse_source_request(payload: object, settings: Settings) -> SourceRequest:
     provider = _parse_provider_text(source_payload.get("provider"))
     source_kind = _parse_source_kind_text(source_payload.get("source_kind", SourceKind.API.value))
     source_id = _clean_text(source_payload.get("source_id")) or "api-source"
+    case_id = _clean_text(source_payload.get("case_id")) or "default"
     location = _clean_text(source_payload.get("location")) or _default_location_for_provider(provider)
     display_name = _clean_text(source_payload.get("display_name")) or provider.value
     timeout_seconds = _parse_timeout_value(source_payload.get("timeout_seconds"), settings.request_timeout_seconds)
@@ -424,6 +375,7 @@ def _parse_source_request(payload: object, settings: Settings) -> SourceRequest:
     return SourceRequest(
         source=SourceConfig(
             source_id=source_id,
+            case_id=case_id,
             source_kind=source_kind,
             provider=provider,
             location=location,
@@ -502,6 +454,114 @@ def _clean_text(value: object) -> str:
         return ""
 
     return value.strip()
+
+
+def _case_id_from_request(request: Request) -> str:
+    """Read an optional case id query parameter."""
+    return _clean_text(request.query_params.get("case_id"))
+
+
+def _check_request_size(request: Request, settings: Settings) -> JSONResponse | None:
+    """Reject requests that are too large before parsing JSON."""
+    content_length = _parse_content_length(request.headers.get("content-length"))
+    if content_length <= settings.max_request_bytes:
+        return None
+
+    return _json_response(
+        {
+            "error": {
+                "code": "request_too_large",
+                "message": f"Request body must be {settings.max_request_bytes} bytes or smaller.",
+            }
+        },
+        status_code=413,
+    )
+
+
+def _check_auth(request: Request, settings: Settings) -> JSONResponse | None:
+    """Require a bearer token when API_AUTH_TOKEN is configured."""
+    if not settings.api_auth_token:
+        return None
+
+    if _is_public_path(request.url.path):
+        return None
+
+    expected_header = f"Bearer {settings.api_auth_token}"
+    if request.headers.get("authorization") == expected_header:
+        return None
+
+    return _json_response(
+        {"error": {"code": "unauthorized", "message": "A valid bearer token is required."}},
+        status_code=401,
+    )
+
+
+def _check_rate_limit(
+    request: Request,
+    settings: Settings,
+    rate_limit_state: dict[str, list[float]],
+) -> JSONResponse | None:
+    """Apply a small per-client in-memory rate limit."""
+    client_id = request.client.host if request.client is not None else "unknown"
+    current_time = time.time()
+    window_start = current_time - 60
+    recent_requests = [
+        timestamp
+        for timestamp in rate_limit_state.get(client_id, [])
+        if timestamp >= window_start
+    ]
+
+    if len(recent_requests) >= settings.rate_limit_per_minute:
+        rate_limit_state[client_id] = recent_requests
+        return _json_response(
+            {"error": {"code": "rate_limited", "message": "Too many requests. Try again later."}},
+            status_code=429,
+        )
+
+    recent_requests.append(current_time)
+    rate_limit_state[client_id] = recent_requests
+    return None
+
+
+def _write_audit_log(
+    settings: Settings,
+    *,
+    request: Request,
+    status_code: int,
+    error_code: str = "",
+) -> None:
+    """Append one JSONL audit event without breaking the request path."""
+    try:
+        audit_path = Path(settings.audit_log_path)
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        audit_event = {
+            "at": utc_now_iso(),
+            "method": request.method,
+            "path": request.url.path,
+            "case_id": _case_id_from_request(request),
+            "status_code": status_code,
+            "error_code": error_code,
+        }
+        with audit_path.open("a", encoding="utf-8") as audit_file:
+            audit_file.write(json.dumps(audit_event, sort_keys=True) + "\n")
+    except Exception:
+        return
+
+
+def _parse_content_length(value: object) -> int:
+    """Read a content-length header safely."""
+    if not isinstance(value, str):
+        return 0
+
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
+def _is_public_path(path: str) -> bool:
+    """Return true for browser/static paths that remain public."""
+    return path in {"/app", "/health"} or path.startswith("/app/assets")
 
 
 def _json_response(payload: object, *, status_code: int = 200) -> JSONResponse:

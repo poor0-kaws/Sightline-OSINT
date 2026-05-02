@@ -8,6 +8,8 @@ from backend.resolution import MatchCandidate
 from backend.resolution import PersonRecord
 from backend.resolution import ResolutionDecision
 from backend.resolution import build_match_candidates_from_normalized_record
+from backend.resolution import resolve_match_candidate_batch
+from backend.resolution import resolve_normalized_records
 from backend.resolution import resolve_match_candidates
 from backend.resolution import resolve_person_records
 from backend.schemas.ingestion import FetchStatus
@@ -500,3 +502,118 @@ def test_candidate_builder_returns_empty_for_non_success_normalized_records() ->
     candidates = build_match_candidates_from_normalized_record(normalized_record)
 
     assert candidates == []
+
+
+def test_candidate_builder_extracts_person_candidate_from_webhook_payload() -> None:
+    """Webhook payloads should feed person-like records into resolution."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
+        raw_record_id="raw-webhook-1",
+        query={"event_type": "lead.created"},
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "event_type": "lead.created",
+            "payload": {
+                "full_name": "Maya Patel",
+                "email": "maya.patel@gmail.com",
+                "phone": "3175550101",
+            },
+        },
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert len(candidates) == 1
+    assert candidates[0].entity_type == EntityType.PERSON
+    assert candidates[0].record_id == "raw-webhook-1:payload:person"
+
+
+def test_candidate_builder_extracts_person_candidates_from_csv_rows() -> None:
+    """Each usable CSV row should become a separate person candidate."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.CSV_UPLOAD,
+        source_type=SourceKind.CSV,
+        raw_record_id="raw-csv-1",
+        query=[],
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "rows": [
+                {"full_name": "Maya Patel", "email": "maya.patel@gmail.com"},
+                {"name": "Omar Ruiz", "email": "omar@example.net"},
+                {"notes": "not enough identity data"},
+            ]
+        },
+        metadata={},
+    )
+
+    candidates = build_match_candidates_from_normalized_record(normalized_record)
+
+    assert [candidate.record_id for candidate in candidates] == [
+        "raw-csv-1:row:0:person",
+        "raw-csv-1:row:1:person",
+    ]
+
+
+def test_resolution_batch_merges_candidates_across_normalized_records() -> None:
+    """Resolution should compare candidates after normalized records enter the batch service."""
+    left_record = NormalizedRecord(
+        provider=ProviderKind.MANUAL_INPUT,
+        source_type=SourceKind.MANUAL,
+        raw_record_id="raw-left",
+        query={},
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "fields": {
+                "full_name": "Maya Patel",
+                "email": "maya.patel@gmail.com",
+                "phone": "3175550101",
+                "company_name": "OpenAI LLC",
+                "city": "Indianapolis",
+                "country": "US",
+            }
+        },
+        metadata={},
+    )
+    right_record = NormalizedRecord(
+        provider=ProviderKind.WEBHOOK,
+        source_type=SourceKind.WEBHOOK,
+        raw_record_id="raw-right",
+        query={},
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "event_type": "lead.created",
+            "payload": {
+                "full_name": "Maya Patel",
+                "email": "maya.patel@gmail.com",
+                "phone": "+1 (317) 555-0101",
+                "company_name": "OpenAI",
+                "city": "Indianapolis",
+                "country": "US",
+            },
+        },
+        metadata={},
+    )
+
+    result = resolve_normalized_records([left_record, right_record])
+
+    assert result.status == "success"
+    assert result.candidate_count == 2
+    assert result.comparison_count == 1
+    assert result.summary["merge"] == 1
+    assert result.matches[0].decision == ResolutionDecision.MERGE
+
+
+def test_resolution_batch_skips_candidates_from_the_same_raw_record() -> None:
+    """Candidates from the same saved raw record should not resolve against themselves."""
+    candidates = [
+        MatchCandidate(record_id="raw-1:domain:0", entity_type=EntityType.DOMAIN, canonical_value="example.com"),
+        MatchCandidate(record_id="raw-1:domain:1", entity_type=EntityType.DOMAIN, canonical_value="example.com"),
+    ]
+
+    result = resolve_match_candidate_batch(candidates, source_record_count=1)
+
+    assert result.candidate_count == 2
+    assert result.comparison_count == 0
+    assert result.matches == []

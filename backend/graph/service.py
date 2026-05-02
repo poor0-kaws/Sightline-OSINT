@@ -59,7 +59,10 @@ class GraphWriteService:
         if isinstance(graph_nodes, GraphWriteResult):
             return graph_nodes
 
-        graph_relationships = self._collect_graph_relationships(relationship_result)
+        graph_relationships = self._collect_graph_relationships(
+            relationship_result,
+            case_id=normalized_record.case_id,
+        )
         if isinstance(graph_relationships, GraphWriteResult):
             return graph_relationships
 
@@ -110,18 +113,33 @@ class GraphWriteService:
         nodes_by_key: dict[str, GraphNode] = {}
 
         for entity in normalized_record.entities:
-            graph_node = self._graph_node_from_normalized_entity(entity, normalized_record.raw_record_id)
+            graph_node = self._graph_node_from_normalized_entity(
+                entity,
+                normalized_record.raw_record_id,
+                normalized_record.case_id,
+            )
             if isinstance(graph_node, GraphWriteResult):
                 return graph_node
             nodes_by_key[graph_node.entity_key] = graph_node
 
         for relationship in relationship_result.relationships:
-            from_node = self._graph_node_from_entity_reference(relationship.from_entity, normalized_record.raw_record_id)
+            from_node = self._graph_node_from_entity_reference(
+                relationship.from_entity,
+                normalized_record.raw_record_id,
+                normalized_record.case_id,
+            )
             if isinstance(from_node, GraphWriteResult):
                 return from_node
-            nodes_by_key[from_node.entity_key] = self._merge_graph_node(nodes_by_key.get(from_node.entity_key), from_node)
+            nodes_by_key[from_node.entity_key] = self._merge_graph_node(
+                nodes_by_key.get(from_node.entity_key),
+                from_node,
+            )
 
-            to_node = self._graph_node_from_entity_reference(relationship.to_entity, normalized_record.raw_record_id)
+            to_node = self._graph_node_from_entity_reference(
+                relationship.to_entity,
+                normalized_record.raw_record_id,
+                normalized_record.case_id,
+            )
             if isinstance(to_node, GraphWriteResult):
                 return to_node
             nodes_by_key[to_node.entity_key] = self._merge_graph_node(nodes_by_key.get(to_node.entity_key), to_node)
@@ -131,12 +149,17 @@ class GraphWriteService:
     def _collect_graph_relationships(
         self,
         relationship_result: RelationshipExtractionResult,
+        *,
+        case_id: str,
     ) -> list[GraphRelationship] | GraphWriteResult:
         """Build one unique graph relationship list."""
         relationships_by_key: dict[str, GraphRelationship] = {}
 
         for relationship in relationship_result.relationships:
-            graph_relationship = self._graph_relationship_from_extracted_relationship(relationship)
+            graph_relationship = self._graph_relationship_from_extracted_relationship(
+                relationship,
+                case_id=case_id,
+            )
             if isinstance(graph_relationship, GraphWriteResult):
                 return graph_relationship
             relationships_by_key[graph_relationship.relationship_key] = self._merge_graph_relationship(
@@ -150,6 +173,7 @@ class GraphWriteService:
         self,
         entity: NormalizedEntity,
         raw_record_id: str,
+        case_id: str,
     ) -> GraphNode | GraphWriteResult:
         """Turn one normalized entity into one graph node."""
         entity_type = self._canonical_graph_entity_type(entity.entity_type)
@@ -157,20 +181,27 @@ class GraphWriteService:
         display_value = self._clean_text(entity.display_value) or canonical_value
 
         if not entity_type or not canonical_value:
-            return self._build_graph_entity_error(raw_record_id, "Normalized entities need entity_type and canonical_value.")
+            return self._build_graph_entity_error(
+                raw_record_id,
+                "Normalized entities need entity_type and canonical_value.",
+            )
+
+        metadata = dict(entity.metadata)
+        metadata["case_id"] = self._clean_case_id(case_id)
 
         return GraphNode(
-            entity_key=self._build_entity_key(entity_type, canonical_value),
+            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=case_id),
             entity_type=entity_type,
             canonical_value=canonical_value,
             display_value=display_value,
-            metadata=dict(entity.metadata),
+            metadata=metadata,
         )
 
     def _graph_node_from_entity_reference(
         self,
         entity_reference: EntityReference,
         raw_record_id: str,
+        case_id: str,
     ) -> GraphNode | GraphWriteResult:
         """Turn one relationship endpoint into one graph node."""
         entity_type = self._canonical_graph_entity_type(entity_reference.entity_type)
@@ -185,16 +216,18 @@ class GraphWriteService:
             )
 
         return GraphNode(
-            entity_key=self._build_entity_key(entity_type, canonical_value),
+            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=case_id),
             entity_type=entity_type,
             canonical_value=canonical_value,
             display_value=display_value,
-            metadata={},
+            metadata={"case_id": self._clean_case_id(case_id)},
         )
 
     def _graph_relationship_from_extracted_relationship(
         self,
         relationship: ExtractedRelationship,
+        *,
+        case_id: str,
     ) -> GraphRelationship | GraphWriteResult:
         """Turn one extracted relationship into one graph edge."""
         relationship_type = self._clean_text(relationship.relationship_type)
@@ -210,9 +243,11 @@ class GraphWriteService:
                 message="Relationships need type and both endpoints before graph writes.",
             )
 
-        from_entity_key = self._build_entity_key(from_type, from_value)
-        to_entity_key = self._build_entity_key(to_type, to_value)
+        from_entity_key = self._build_entity_key(from_type, from_value, case_id=case_id)
+        to_entity_key = self._build_entity_key(to_type, to_value, case_id=case_id)
         relationship_key = f"{relationship_type}|{from_entity_key}|{to_entity_key}"
+        metadata = dict(relationship.metadata)
+        metadata["case_id"] = self._clean_case_id(case_id)
 
         return GraphRelationship(
             relationship_key=relationship_key,
@@ -221,7 +256,7 @@ class GraphWriteService:
             to_entity_key=to_entity_key,
             confidence_percent=relationship.confidence_percent,
             evidence_record_id=relationship.evidence_record_id,
-            metadata=dict(relationship.metadata),
+            metadata=metadata,
         )
 
     def _merge_graph_node(self, existing_node: GraphNode | None, new_node: GraphNode) -> GraphNode:
@@ -314,6 +349,7 @@ class GraphWriteService:
         return NormalizedRecord(
             provider=ProviderKind.IPINFO,
             source_type=normalized_record_source_type_fallback(),
+            case_id="default",
             raw_record_id=raw_record_id,
             query=None,
             status=FetchStatus.SUCCESS,
@@ -321,9 +357,9 @@ class GraphWriteService:
             metadata={},
         )
 
-    def _build_entity_key(self, entity_type: str, canonical_value: str) -> str:
+    def _build_entity_key(self, entity_type: str, canonical_value: str, *, case_id: str) -> str:
         """Build one stable node key."""
-        return f"{entity_type}:{self._slugify(canonical_value)}"
+        return f"case:{self._slugify(self._clean_case_id(case_id))}:{entity_type}:{self._slugify(canonical_value)}"
 
     def _slugify(self, value: str) -> str:
         """Turn a readable value into a key-safe value."""
@@ -356,6 +392,14 @@ class GraphWriteService:
             return ""
 
         return value.strip()
+
+    def _clean_case_id(self, value: Any) -> str:
+        """Return a safe case id."""
+        cleaned_value = self._clean_text(value)
+        if not cleaned_value:
+            return "default"
+
+        return cleaned_value
 
     def _canonical_graph_entity_type(self, value: Any) -> str:
         """Collapse near-duplicate entity labels into one graph label."""

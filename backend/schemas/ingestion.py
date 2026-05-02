@@ -56,6 +56,7 @@ class SourceConfig(BaseModel):
     """Configuration for one source adapter."""
 
     source_id: str = Field(default="source-demo", description="Stable source id")
+    case_id: str = Field(default="default", description="Investigation case id")
     source_kind: SourceKind = Field(default=SourceKind.API, description="High-level source family")
     provider: ProviderKind = Field(default=ProviderKind.IPINFO, description="Concrete provider")
     location: str = Field(default="", description="Base URL, topic, or file hint")

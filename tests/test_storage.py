@@ -131,6 +131,34 @@ def test_list_raw_responses_returns_all_saved_records(tmp_path: object) -> None:
     assert {record.source_id for record in saved_records} == {"source-a", "source-b"}
 
 
+def test_list_raw_responses_can_filter_by_case_id(tmp_path: object) -> None:
+    """Case filtering should only return records from one investigation."""
+    repository = FileRawStorageRepository(tmp_path)
+    raw_response = RawProviderResponse(
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        query="8.8.8.8",
+        fetched_at="2026-04-25T12:17:00+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={"ip": "8.8.8.8"},
+        metadata={},
+    )
+
+    repository.save_raw_response(
+        source_config=SourceConfig(case_id="case-alpha", source_id="source-a", provider=ProviderKind.IPINFO),
+        raw_response=raw_response,
+    )
+    repository.save_raw_response(
+        source_config=SourceConfig(case_id="case-beta", source_id="source-b", provider=ProviderKind.IPINFO),
+        raw_response=raw_response,
+    )
+
+    saved_records = repository.list_raw_responses(case_id="case-alpha")
+
+    assert len(saved_records) == 1
+    assert saved_records[0].case_id == "case-alpha"
+
+
 def test_load_raw_response_requires_exact_full_record_id(tmp_path: Path) -> None:
     """Loading should not confuse two records that share the same id prefix."""
     repository = FileRawStorageRepository(tmp_path)

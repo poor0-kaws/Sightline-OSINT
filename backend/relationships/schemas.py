@@ -26,6 +26,8 @@ class EntityType(str, Enum):
     CERTIFICATE = "certificate"
     DOMAIN = "domain"
     ISSUER = "issuer"
+    AIRCRAFT = "aircraft"
+    PLACE = "place"
 
 
 class RelationshipType(str, Enum):
@@ -38,6 +40,7 @@ class RelationshipType(str, Enum):
     IP_LOCATED_IN = "ip_located_in"
     CERTIFICATE_MENTIONS_DOMAIN = "certificate_mentions_domain"
     CERTIFICATE_ISSUED_BY = "certificate_issued_by"
+    AIRCRAFT_OBSERVED_OVER = "aircraft_observed_over"
 
 
 class EntityReference(BaseModel):

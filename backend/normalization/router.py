@@ -50,6 +50,7 @@ def normalize_saved_raw_record(saved_raw_record: SavedRawRecord) -> NormalizedRe
         NormalizedRecord(
         provider=_get_safe_provider(saved_raw_record),
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=FetchStatus.ERROR,

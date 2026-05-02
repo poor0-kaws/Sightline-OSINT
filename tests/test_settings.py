@@ -18,8 +18,15 @@ def test_settings_use_defaults_when_env_is_missing() -> None:
     os.environ.pop("APP_NAME", None)
     os.environ.pop("APP_ENV", None)
     os.environ.pop("REQUEST_TIMEOUT_SECONDS", None)
+    os.environ.pop("MAX_REQUEST_BYTES", None)
+    os.environ.pop("RATE_LIMIT_PER_MINUTE", None)
     os.environ.pop("RAW_STORAGE_PATH", None)
+    os.environ.pop("AUDIT_LOG_PATH", None)
+    os.environ.pop("API_AUTH_TOKEN", None)
+    os.environ.pop("GRAPH_REPOSITORY_KIND", None)
     os.environ.pop("NEO4J_URL", None)
+    os.environ.pop("NEO4J_USERNAME", None)
+    os.environ.pop("NEO4J_PASSWORD", None)
     os.environ.pop("IPINFO_API_KEY", None)
 
     settings = get_settings()
@@ -27,8 +34,15 @@ def test_settings_use_defaults_when_env_is_missing() -> None:
     assert settings.app_name == "SightlineOSINT"
     assert settings.app_env == "development"
     assert settings.request_timeout_seconds == 30
+    assert settings.max_request_bytes == 1_000_000
+    assert settings.rate_limit_per_minute == 120
     assert settings.raw_storage_path == "data/raw"
+    assert settings.audit_log_path == "data/audit.log"
+    assert settings.api_auth_token == ""
+    assert settings.graph_repository_kind == "memory"
     assert settings.neo4j_url == "bolt://localhost:7687"
+    assert settings.neo4j_username == ""
+    assert settings.neo4j_password == ""
     assert settings.ipinfo_api_key == ""
 
 
@@ -37,8 +51,15 @@ def test_settings_use_environment_overrides() -> None:
     os.environ["APP_NAME"] = "SightlineOSINT Test"
     os.environ["APP_ENV"] = "test"
     os.environ["REQUEST_TIMEOUT_SECONDS"] = "45"
+    os.environ["MAX_REQUEST_BYTES"] = "2048"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10"
     os.environ["RAW_STORAGE_PATH"] = "tmp/raw"
+    os.environ["AUDIT_LOG_PATH"] = "tmp/audit.log"
+    os.environ["API_AUTH_TOKEN"] = "test-token"
+    os.environ["GRAPH_REPOSITORY_KIND"] = "neo4j"
     os.environ["NEO4J_URL"] = "bolt://graph.example:7687"
+    os.environ["NEO4J_USERNAME"] = "neo4j"
+    os.environ["NEO4J_PASSWORD"] = "password"
     os.environ["IPINFO_API_KEY"] = "secret-key"
 
     settings = get_settings()
@@ -46,8 +67,15 @@ def test_settings_use_environment_overrides() -> None:
     assert settings.app_name == "SightlineOSINT Test"
     assert settings.app_env == "test"
     assert settings.request_timeout_seconds == 45
+    assert settings.max_request_bytes == 2048
+    assert settings.rate_limit_per_minute == 10
     assert settings.raw_storage_path == "tmp/raw"
+    assert settings.audit_log_path == "tmp/audit.log"
+    assert settings.api_auth_token == "test-token"
+    assert settings.graph_repository_kind == "neo4j"
     assert settings.neo4j_url == "bolt://graph.example:7687"
+    assert settings.neo4j_username == "neo4j"
+    assert settings.neo4j_password == "password"
     assert settings.ipinfo_api_key == "secret-key"
 
 
@@ -67,6 +95,36 @@ def test_validate_settings_rejects_blank_raw_storage_path() -> None:
         validate_settings(
             Settings(
                 raw_storage_path="   ",
+            )
+        )
+
+
+def test_validate_settings_rejects_non_positive_request_size_limit() -> None:
+    """Startup validation should reject impossible request size limits."""
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        validate_settings(
+            Settings(
+                max_request_bytes=0,
+            )
+        )
+
+
+def test_validate_settings_rejects_non_positive_rate_limit() -> None:
+    """Startup validation should reject impossible rate limits."""
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        validate_settings(
+            Settings(
+                rate_limit_per_minute=0,
+            )
+        )
+
+
+def test_validate_settings_rejects_unknown_graph_repository_kind() -> None:
+    """Startup validation should reject unknown graph repository modes."""
+    with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):
+        validate_settings(
+            Settings(
+                graph_repository_kind="postgres",
             )
         )
 

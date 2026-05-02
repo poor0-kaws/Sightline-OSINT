@@ -16,6 +16,7 @@ class SavedRawRecord(BaseModel):
     """One raw provider response saved to local storage."""
 
     record_id: str = Field(default="", description="Stable id for one saved raw record")
+    case_id: str = Field(default="default", description="Investigation case id")
     source_id: str = Field(default="", description="Which source config produced the record")
     provider: ProviderKind = Field(default=ProviderKind.IPINFO, description="Which provider answered")
     source_type: SourceKind = Field(default=SourceKind.API, description="Which source family answered")

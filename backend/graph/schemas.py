@@ -34,6 +34,13 @@ class GraphRelationship(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, description="Extra source facts for this edge")
 
 
+class GraphSnapshot(BaseModel):
+    """A read-side snapshot of graph nodes and relationships."""
+
+    nodes: list[GraphNode] = Field(default_factory=list, description="Graph nodes")
+    relationships: list[GraphRelationship] = Field(default_factory=list, description="Graph relationships")
+
+
 class GraphWriteResult(BaseModel):
     """The result of writing one record's graph artifacts."""
 

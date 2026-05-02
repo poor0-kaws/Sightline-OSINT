@@ -1,22 +1,16 @@
 # SightlineOSINT
 
-SightlineOSINT is an investigation tool in progress.
+SightlineOSINT is a local OSINT investigation app.
 
-Right now, this repository contains the first backend slice:
-- source adapter schemas
-- provider validation
-- a shared raw response wrapper
-- a small ingestion service
-- tests for the current ingestion prototype
-
-The bigger goal is to grow this into a full OSINT workflow:
-- fetch data from different sources
-- save raw payloads
-- normalize the data
+It can:
+- fetch or accept raw provider data
+- save the raw data first
+- normalize it into shared records
 - resolve duplicate entities
-- build graph relationships
-- expose the graph through an API
-- show it in an investigation UI
+- extract relationships
+- write graph nodes and edges
+- serve a FastAPI backend
+- serve a React investigation UI
 
 ## How To Run Tests
 
@@ -31,6 +25,23 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 pytest
+```
+
+## How To Run The App
+
+```bash
+python -m pip install -e ".[dev]"
+cd frontend
+npm install
+npm run build
+cd ..
+uvicorn backend.main:app --reload
+```
+
+Open:
+
+```text
+http://localhost:8000/app
 ```
 
 ## Package Manager Flow
@@ -48,12 +59,19 @@ This is a good starting point because it is easy to understand and does not add 
 
 ```text
 backend/
+  api/          FastAPI routes and React static bundle
+  cases/        case summaries
   connectors/   provider-specific source adapters
-  schemas/      shared models for requests and responses
-  services/     small service layer over the adapters
+  graph/        graph write/read repositories
+  normalization/ provider normalizers and shared entity extraction
+  relationships/ relationship extraction
+  resolution/   entity resolution
+  schemas/      shared models
+  services/     pipeline services
+  storage/      saved raw records
   utils/        tiny shared helpers
+frontend/       React investigation UI
 tests/          unit tests for the current prototype
-architecture.md the target system design
 ```
 
 ## Architecture Summary
@@ -80,6 +98,43 @@ The project includes a small settings module that reads environment variables.
 - `APP_NAME`: visible app name
 - `APP_ENV`: environment name like `development` or `test`
 - `REQUEST_TIMEOUT_SECONDS`: default outbound request timeout
-- `RAW_STORAGE_PATH`: where raw payloads should be saved later
+- `MAX_REQUEST_BYTES`: maximum incoming request body size
+- `RATE_LIMIT_PER_MINUTE`: simple per-client API rate limit
+- `RAW_STORAGE_PATH`: where raw payloads are saved
+- `AUDIT_LOG_PATH`: JSONL audit log path
+- `API_AUTH_TOKEN`: optional bearer token for API routes
+- `GRAPH_REPOSITORY_KIND`: `memory` or `neo4j`
 - `NEO4J_URL`: graph database connection URL
-- `IPINFO_API_KEY`: API key for the future real IPinfo integration
+- `NEO4J_USERNAME`: Neo4j username
+- `NEO4J_PASSWORD`: Neo4j password
+- `IPINFO_API_KEY`: optional IPinfo API key
+
+Copy `.env.example` to `.env` for Docker Compose.
+
+## Docker Compose
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+To use Neo4j writes, set:
+
+```text
+GRAPH_REPOSITORY_KIND=neo4j
+NEO4J_URL=bolt://neo4j:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=sightline-password
+```
+
+## Key API Routes
+
+- `GET /health`
+- `GET /cases`
+- `GET /records/raw?case_id=default`
+- `POST /source/raw`
+- `POST /source/full`
+- `GET /resolution/matches?case_id=default`
+- `GET /graph/data?case_id=default`
+- `POST /graph/rebuild?case_id=default`
+- `GET /app`

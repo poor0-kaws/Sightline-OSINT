@@ -280,3 +280,36 @@ def test_nominatim_record_returns_no_relationships_in_v1() -> None:
 
     assert result.status == FetchStatus.NO_RESULTS
     assert result.relationships == []
+
+
+def test_opensky_record_extracts_aircraft_observed_over_place_relationship() -> None:
+    """OpenSky aircraft coordinates should become an aircraft-place graph edge."""
+    from backend.normalization.schemas import NormalizedRelationshipCandidate
+    from backend.relationships import EntityType
+    from backend.relationships import RelationshipType
+    from backend.relationships import extract_relationships_from_normalized_record
+
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.OPENSKY,
+        source_type=SourceKind.API,
+        raw_record_id="raw-opensky-1",
+        query="AAL123",
+        status=FetchStatus.SUCCESS,
+        normalized_data={"aircraft": {"icao24": "abc123"}},
+        relationship_candidates=[
+            NormalizedRelationshipCandidate(
+                relationship_type="observed_over",
+                source_entity_type="aircraft",
+                source_canonical_value="abc123",
+                target_entity_type="place",
+                target_canonical_value="39.7684|-86.1581",
+            )
+        ],
+        metadata={},
+    )
+
+    result = extract_relationships_from_normalized_record(normalized_record)
+
+    assert result.status == FetchStatus.SUCCESS
+    assert result.relationships[0].relationship_type == RelationshipType.AIRCRAFT_OBSERVED_OVER
+    assert result.relationships[0].from_entity.entity_type == EntityType.AIRCRAFT

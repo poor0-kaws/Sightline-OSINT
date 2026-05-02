@@ -15,7 +15,8 @@ def build_startup_message() -> str:
 
     return (
         f"{settings.app_name} is set up in {settings.app_env} mode. "
-        "The backend now exposes a small HTTP API for providers, raw records, normalization, and relationships."
+        "The backend exposes providers, raw records, normalization, resolution, "
+        "relationships, graph writes, and the app UI."
     )
 
 

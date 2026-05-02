@@ -20,6 +20,7 @@ def build_success_record(
     return NormalizedRecord(
         provider=saved_raw_record.provider,
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=FetchStatus.SUCCESS,
@@ -34,6 +35,7 @@ def build_passthrough_record(saved_raw_record: SavedRawRecord) -> NormalizedReco
     return NormalizedRecord(
         provider=saved_raw_record.provider,
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=saved_raw_record.status,
@@ -52,6 +54,7 @@ def build_bad_raw_data_record(
     return NormalizedRecord(
         provider=saved_raw_record.provider,
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=FetchStatus.ERROR,

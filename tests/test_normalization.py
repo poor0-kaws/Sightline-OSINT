@@ -41,6 +41,39 @@ def test_ipinfo_saved_record_normalizes_into_shared_shape() -> None:
     assert normalized_record.normalized_data["organization"] == "AS15169 Google LLC"
 
 
+def test_ipinfo_lite_saved_record_normalizes_into_shared_shape() -> None:
+    """IPinfo Lite raw data should map into the same normalized IPinfo shape."""
+    saved_raw_record = SavedRawRecord(
+        record_id="raw-ip-lite-1",
+        source_id="source-ip-lite-1",
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        query="8.8.8.8",
+        fetched_at="2026-04-26T00:00:00+00:00",
+        saved_at="2026-04-26T00:00:01+00:00",
+        status=FetchStatus.SUCCESS,
+        raw_data={
+            "ip": "8.8.8.8",
+            "asn": "AS15169",
+            "as_name": "Google LLC",
+            "as_domain": "google.com",
+            "country_code": "US",
+            "country": "United States",
+            "continent_code": "NA",
+            "continent": "North America",
+        },
+        metadata={"mode": "live"},
+    )
+
+    normalized_record = normalize_saved_raw_record(saved_raw_record)
+
+    assert normalized_record.status == FetchStatus.SUCCESS
+    assert normalized_record.normalized_data["ip_address"] == "8.8.8.8"
+    assert normalized_record.normalized_data["organization"] == "AS15169 Google LLC"
+    assert normalized_record.normalized_data["as_domain"] == "google.com"
+    assert normalized_record.normalized_data["country"] == "United States"
+
+
 def test_nominatim_search_saved_record_normalizes_into_shared_shape() -> None:
     """Nominatim search results should normalize into shared place data."""
     saved_raw_record = SavedRawRecord(

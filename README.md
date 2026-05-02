@@ -107,7 +107,7 @@ The project includes a small settings module that reads environment variables.
 - `NEO4J_URL`: graph database connection URL
 - `NEO4J_USERNAME`: Neo4j username
 - `NEO4J_PASSWORD`: Neo4j password
-- `IPINFO_API_KEY`: optional IPinfo API key
+- `IPINFO_API_KEY`: optional IPinfo API key for live Lite API lookups
 
 Copy `.env.example` to `.env` for Docker Compose.
 

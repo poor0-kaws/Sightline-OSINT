@@ -33,7 +33,7 @@ class IPinfoAdapter(BaseSourceAdapter):
     description = "Looks up IP intelligence for one IP address."
     accepted_query_types = [QueryType.IP_ADDRESS]
     example_query = "8.8.8.8"
-    example_location = "https://ipinfo.io"
+    example_location = "https://api.ipinfo.io/lite"
 
     def validate_provider_query(self, query: Any) -> ProviderError | None:
         if not is_valid_ipv4_address(query):
@@ -49,7 +49,7 @@ class IPinfoAdapter(BaseSourceAdapter):
         if not settings.ipinfo_api_key:
             return self._build_demo_result(query)
 
-        request_url = f"{self.source_config.location.rstrip('/')}/{quote(str(query))}/json"
+        request_url = self._build_request_url(query)
 
         try:
             response = get_json(
@@ -78,6 +78,16 @@ class IPinfoAdapter(BaseSourceAdapter):
                 "request_url": response.url,
             },
         }
+
+    def _build_request_url(self, query: Any) -> str:
+        """Build the right IPinfo URL for Lite or classic IPinfo APIs."""
+        base_url = self.source_config.location.rstrip("/")
+        encoded_query = quote(str(query).strip())
+
+        if base_url.endswith("/lite"):
+            return f"{base_url}/{encoded_query}"
+
+        return f"{base_url}/{encoded_query}/json"
 
     def _build_demo_result(self, query: Any) -> dict[str, Any]:
         """Return a readable fallback result when no live key is configured."""

@@ -61,6 +61,7 @@ def _extract_ipinfo_artifacts(normalized_record: NormalizedRecord) -> Normalized
 
     ip_value = normalized_record.normalized_data.get("ip_address")
     organization_value = normalized_record.normalized_data.get("organization")
+    as_domain = normalized_record.normalized_data.get("as_domain")
     city = _to_text(normalized_record.normalized_data.get("city"))
     region = _to_text(normalized_record.normalized_data.get("region"))
     country = _to_text(normalized_record.normalized_data.get("country"))
@@ -72,6 +73,10 @@ def _extract_ipinfo_artifacts(normalized_record: NormalizedRecord) -> Normalized
     collector.add_organization_entity(
         organization_value,
         detail="IPinfo provided this organization value.",
+    )
+    collector.add_domain_entity(
+        as_domain,
+        detail="IPinfo Lite provided this ASN domain value.",
     )
     collector.add_place_entity(
         city=city,
@@ -85,6 +90,13 @@ def _extract_ipinfo_artifacts(normalized_record: NormalizedRecord) -> Normalized
         source_value=_canonical_ip(ip_value),
         target_entity_type="organization",
         target_value=_canonical_organization(organization_value),
+    )
+    collector.add_relationship_if_present(
+        relationship_type="associated_with",
+        source_entity_type="ip",
+        source_value=_canonical_ip(ip_value),
+        target_entity_type="domain",
+        target_value=_canonical_domain(as_domain),
     )
     collector.add_relationship_if_present(
         relationship_type="located_in",

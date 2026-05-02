@@ -432,7 +432,7 @@ def _parse_timeout_value(value: object, default_value: int) -> int:
 def _default_location_for_provider(provider: ProviderKind) -> str:
     """Return one simple default location for a provider."""
     if provider == ProviderKind.IPINFO:
-        return "https://ipinfo.io"
+        return "https://api.ipinfo.io/lite"
     if provider == ProviderKind.CRT_SH:
         return "https://crt.sh"
     if provider == ProviderKind.NOMINATIM:

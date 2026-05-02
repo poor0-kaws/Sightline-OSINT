@@ -14,6 +14,7 @@ from backend.settings import get_settings
 def clear_settings_cache() -> Iterator[None]:
     """Make each test read fresh environment values."""
     original_environ = os.environ.copy()
+    os.environ["SIGHTLINE_IGNORE_DOTENV"] = "1"
     get_settings.cache_clear()
 
     yield

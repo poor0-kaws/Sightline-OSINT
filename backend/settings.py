@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import os
+from pathlib import Path
 
 from backend.schemas.error_codes import ErrorCode
 
 
 def _read_text(name: str, default: str) -> str:
-    """Read one environment variable as a clean string."""
-    value = os.getenv(name)
+    """Read one setting as a clean string."""
+    value = _read_raw_setting(name)
     if value is None:
         return default
 
@@ -23,8 +24,8 @@ def _read_text(name: str, default: str) -> str:
 
 
 def _read_int(name: str, default: int) -> int:
-    """Read one environment variable as an integer."""
-    raw_value = os.getenv(name)
+    """Read one setting as an integer."""
+    raw_value = _read_raw_setting(name)
     if raw_value is None:
         return default
 
@@ -36,6 +37,68 @@ def _read_int(name: str, default: int) -> int:
         return int(cleaned_value)
     except ValueError:
         return default
+
+
+def _read_raw_setting(name: str) -> str | None:
+    """Read from the real environment first, then local .env."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+
+    return _read_dotenv_values().get(name)
+
+
+@lru_cache(maxsize=1)
+def _read_dotenv_values() -> dict[str, str]:
+    """Read simple KEY=VALUE lines from the project .env file."""
+    if os.getenv("SIGHTLINE_IGNORE_DOTENV") == "1":
+        return {}
+
+    dotenv_path = _dotenv_path()
+    if not dotenv_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        cleaned_line = line.strip()
+        if not cleaned_line:
+            continue
+
+        if cleaned_line.startswith("#"):
+            continue
+
+        if "=" not in cleaned_line:
+            continue
+
+        key, raw_value = cleaned_line.split("=", maxsplit=1)
+        cleaned_key = key.strip()
+        if not cleaned_key:
+            continue
+
+        values[cleaned_key] = _clean_dotenv_value(raw_value)
+
+    return values
+
+
+def _dotenv_path() -> Path:
+    """Return the configured .env path or the repo-local default."""
+    custom_path = os.getenv("SIGHTLINE_DOTENV_PATH")
+    if custom_path:
+        return Path(custom_path).expanduser()
+
+    return Path(__file__).resolve().parent.parent / ".env"
+
+
+def _clean_dotenv_value(value: str) -> str:
+    """Trim whitespace and one optional quote pair from a .env value."""
+    cleaned_value = value.strip()
+    if len(cleaned_value) < 2:
+        return cleaned_value
+
+    if cleaned_value[0] == cleaned_value[-1] and cleaned_value[0] in {"'", '"'}:
+        return cleaned_value[1:-1]
+
+    return cleaned_value
 
 
 @dataclass(frozen=True)
@@ -151,4 +214,10 @@ def get_validated_settings() -> Settings:
     return validate_settings(get_settings())
 
 
-get_settings.cache_clear = _build_cached_settings.cache_clear
+def _clear_settings_cache() -> None:
+    """Clear cached environment and .env reads."""
+    _build_cached_settings.cache_clear()
+    _read_dotenv_values.cache_clear()
+
+
+get_settings.cache_clear = _clear_settings_cache

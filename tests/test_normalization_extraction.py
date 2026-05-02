@@ -69,6 +69,41 @@ def test_ipinfo_shared_extraction_tolerates_missing_optional_fields() -> None:
     assert enriched_record.relationship_candidates == []
 
 
+def test_ipinfo_lite_shared_extraction_adds_as_domain_when_present() -> None:
+    """IPinfo Lite ASN domains should become reusable domain entities."""
+    normalized_record = NormalizedRecord(
+        provider=ProviderKind.IPINFO,
+        source_type=SourceKind.API,
+        raw_record_id="norm-ip-lite-1",
+        query="8.8.8.8",
+        status=FetchStatus.SUCCESS,
+        normalized_data={
+            "ip_address": "8.8.8.8",
+            "organization": "AS15169 Google LLC",
+            "city": "",
+            "region": "",
+            "country": "United States",
+            "as_domain": "google.com",
+        },
+        metadata={"mode": "live"},
+    )
+
+    enriched_record = extract_shared_artifacts(normalized_record)
+
+    assert ("domain", "google.com") in {
+        (entity.entity_type, entity.canonical_value)
+        for entity in enriched_record.entities
+    }
+    assert ("associated_with", "ip", "domain") in {
+        (
+            relationship.relationship_type,
+            relationship.source_entity_type,
+            relationship.target_entity_type,
+        )
+        for relationship in enriched_record.relationship_candidates
+    }
+
+
 def test_ipinfo_shared_extraction_returns_error_for_bad_normalized_shape() -> None:
     """Malformed provider-normalized data should fail before later layers use it."""
     normalized_record = NormalizedRecord(

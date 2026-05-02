@@ -394,12 +394,13 @@ def test_ipinfo_uses_live_http_path_when_api_key_is_configured(
             status_code=200,
             data={
                 "ip": "8.8.8.8",
-                "city": "Mountain View",
-                "region": "California",
-                "country": "US",
-                "org": "AS15169 Google LLC",
+                "asn": "AS15169",
+                "as_name": "Google LLC",
+                "as_domain": "google.com",
+                "country_code": "US",
+                "country": "United States",
             },
-            url="https://ipinfo.io/8.8.8.8/json?token=secret-key",
+            url="https://api.ipinfo.io/lite/8.8.8.8?token=secret-key",
         )
 
     monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
@@ -412,13 +413,46 @@ def test_ipinfo_uses_live_http_path_when_api_key_is_configured(
         )
     )
 
-    assert captured_call["url"] == "https://ipinfo.io/8.8.8.8/json"
+    assert captured_call["url"] == "https://api.ipinfo.io/lite/8.8.8.8"
     assert captured_call["params"] == {"token": "secret-key"}
     assert captured_call["headers"] == {"Accept": "application/json"}
     assert captured_call["timeout_seconds"] == 11
     assert response.status == FetchStatus.SUCCESS
     assert response.raw_data["ip"] == "8.8.8.8"
     assert response.metadata["mode"] == "live"
+
+
+def test_ipinfo_still_supports_classic_http_path_when_location_is_classic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom classic IPinfo locations should still append the /json suffix."""
+    monkeypatch.setenv("IPINFO_API_KEY", "secret-key")
+
+    captured_call: dict[str, object] = {}
+
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        captured_call["url"] = url
+        return JSONResponse(
+            status_code=200,
+            data={"ip": "8.8.8.8", "org": "AS15169 Google LLC"},
+            url="https://ipinfo.io/8.8.8.8/json?token=secret-key",
+        )
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
+    service = IngestionService()
+    response = service.run_source_request(
+        SourceRequest(
+            source=SourceConfig(
+                provider=ProviderKind.IPINFO,
+                location="https://ipinfo.io",
+            ),
+            query="8.8.8.8",
+        )
+    )
+
+    assert captured_call["url"] == "https://ipinfo.io/8.8.8.8/json"
+    assert response.status == FetchStatus.SUCCESS
 
 
 def test_ipinfo_returns_clean_error_when_http_helper_fails(

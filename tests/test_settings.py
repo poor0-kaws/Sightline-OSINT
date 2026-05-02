@@ -79,6 +79,33 @@ def test_settings_use_environment_overrides() -> None:
     assert settings.ipinfo_api_key == "secret-key"
 
 
+def test_settings_can_read_local_dotenv_file(tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local .env values should work when the shell has not exported them."""
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "\n".join(
+            [
+                "APP_NAME=Sightline Dotenv",
+                "REQUEST_TIMEOUT_SECONDS=12",
+                "IPINFO_API_KEY=dotenv-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("APP_NAME", raising=False)
+    monkeypatch.delenv("REQUEST_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("IPINFO_API_KEY", raising=False)
+    monkeypatch.delenv("SIGHTLINE_IGNORE_DOTENV", raising=False)
+    monkeypatch.setenv("SIGHTLINE_DOTENV_PATH", str(dotenv_path))
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.app_name == "Sightline Dotenv"
+    assert settings.request_timeout_seconds == 12
+    assert settings.ipinfo_api_key == "dotenv-key"
+
+
 def test_validate_settings_rejects_non_positive_timeout() -> None:
     """Startup validation should reject zero or negative timeouts."""
     with pytest.raises(ValueError, match=ErrorCode.INVALID_SETTINGS.value):

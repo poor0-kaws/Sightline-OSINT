@@ -95,8 +95,13 @@ def test_empty_query_returns_provider_error_wrapper() -> None:
     assert response.error.code == "empty_query"
 
 
-def test_opensky_accepts_bounding_box_queries() -> None:
-    """OpenSky should accept bounding box input and return a wrapped response."""
+def test_opensky_accepts_bounding_box_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenSky should accept bounding box input before the live provider call."""
+    def fake_get_json(url, *, params=None, headers=None, timeout_seconds=30, opener=None):
+        raise HTTPClientError("Network request timed out.", failure_kind="timeout")
+
+    monkeypatch.setattr(api_connector_module, "get_json", fake_get_json)
+
     service = IngestionService()
     response = service.run_source_request(
         SourceRequest(
@@ -107,6 +112,7 @@ def test_opensky_accepts_bounding_box_queries() -> None:
 
     assert response.status == FetchStatus.ERROR
     assert response.error is not None
+    assert response.error.code == "provider_timeout"
 
 
 def test_opensky_rejects_bounding_box_with_reversed_latitude_range() -> None:

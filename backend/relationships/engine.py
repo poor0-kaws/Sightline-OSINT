@@ -1,7 +1,8 @@
-"""Strict relationship extraction router and provider-specific extractors."""
+"""Provider-specific relationship extractors and their provider registry."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from backend.normalization.schemas import NormalizedRecord
@@ -15,13 +16,9 @@ from backend.relationships.common import is_placeholder_email
 from backend.relationships.common import is_placeholder_phone_number
 from backend.relationships.common import is_role_based_email
 from backend.relationships.common import normalize_company_canonical
-from backend.relationships.common import normalize_company_display
-from backend.relationships.common import normalize_domain_value
 from backend.relationships.common import normalize_email
-from backend.relationships.common import normalize_ip_value
 from backend.relationships.common import normalize_location_values
 from backend.relationships.common import normalize_phone_number
-from backend.relationships.common import normalize_text
 from backend.relationships.schemas import EntityType
 from backend.relationships.schemas import ExtractedRelationship
 from backend.relationships.schemas import RelationshipExtractionResult
@@ -29,6 +26,11 @@ from backend.relationships.schemas import RelationshipType
 from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderKind
+from backend.utils.identifiers import normalize_domain
+from backend.utils.identifiers import normalize_ipv4
+from backend.utils.text import collect_text_values
+from backend.utils.text import first_text_value
+from backend.utils.text import to_text
 
 
 PERSON_EMAIL_CONFIDENCE = 95
@@ -46,26 +48,9 @@ def extract_relationships_from_normalized_record(normalized_record: NormalizedRe
     if normalized_record.status != FetchStatus.SUCCESS:
         return build_passthrough_result(normalized_record)
 
-    if normalized_record.provider == ProviderKind.IPINFO:
-        return _extract_ipinfo_relationships(normalized_record)
-
-    if normalized_record.provider == ProviderKind.CRT_SH:
-        return _extract_crt_sh_relationships(normalized_record)
-
-    if normalized_record.provider == ProviderKind.MANUAL_INPUT:
-        return _extract_manual_input_relationships(normalized_record)
-
-    if normalized_record.provider == ProviderKind.WEBHOOK:
-        return _extract_webhook_relationships(normalized_record)
-
-    if normalized_record.provider == ProviderKind.CSV_UPLOAD:
-        return _extract_csv_upload_relationships(normalized_record)
-
-    if normalized_record.provider == ProviderKind.NOMINATIM:
-        return build_no_results_result(normalized_record)
-
-    if normalized_record.provider == ProviderKind.OPENSKY:
-        return _extract_opensky_relationships(normalized_record)
+    extractor = RELATIONSHIP_EXTRACTOR_BY_PROVIDER.get(normalized_record.provider)
+    if extractor is not None:
+        return extractor(normalized_record)
 
     return build_error_result(
         normalized_record,
@@ -83,7 +68,7 @@ def _extract_ipinfo_relationships(normalized_record: NormalizedRecord) -> Relati
             message="IPinfo normalized data must be a dictionary before relationship extraction.",
         )
 
-    ip_value = normalize_ip_value(normalized_record.normalized_data.get("ip_address"))
+    ip_value = normalize_ipv4(normalized_record.normalized_data.get("ip_address"))
     if not ip_value:
         return build_no_results_result(normalized_record)
 
@@ -96,7 +81,7 @@ def _extract_ipinfo_relationships(normalized_record: NormalizedRecord) -> Relati
 
     relationships: list[ExtractedRelationship] = []
 
-    organization_display = normalize_text(normalized_record.normalized_data.get("organization"))
+    organization_display = to_text(normalized_record.normalized_data.get("organization"))
     organization_canonical = normalize_company_canonical(organization_display)
     if organization_display and organization_canonical:
         organization_entity = build_entity_reference(
@@ -177,7 +162,7 @@ def _extract_crt_sh_relationships(normalized_record: NormalizedRecord) -> Relati
             record_scope=certificate_scope,
             entity_type=EntityType.CERTIFICATE,
             canonical_value=certificate_scope,
-            display_value=normalize_text(certificate.get("common_name")) or f"certificate-{certificate_index}",
+            display_value=to_text(certificate.get("common_name")) or f"certificate-{certificate_index}",
         )
 
         seen_domains: set[str] = set()
@@ -204,7 +189,7 @@ def _extract_crt_sh_relationships(normalized_record: NormalizedRecord) -> Relati
                 )
             )
 
-        issuer_display = normalize_text(certificate.get("issuer_name"))
+        issuer_display = to_text(certificate.get("issuer_name"))
         issuer_canonical = normalize_company_canonical(issuer_display)
         if issuer_display and issuer_canonical:
             issuer_entity = build_entity_reference(
@@ -332,15 +317,15 @@ def _extract_opensky_relationships(normalized_record: NormalizedRecord) -> Relat
     relationships: list[ExtractedRelationship] = []
 
     for index, candidate in enumerate(normalized_record.relationship_candidates):
-        relationship_type = normalize_text(candidate.relationship_type)
+        relationship_type = to_text(candidate.relationship_type)
         if relationship_type != "observed_over":
             continue
 
         if candidate.source_entity_type != "aircraft" or candidate.target_entity_type != "place":
             continue
 
-        aircraft_value = normalize_text(candidate.source_canonical_value)
-        place_value = normalize_text(candidate.target_canonical_value)
+        aircraft_value = to_text(candidate.source_canonical_value)
+        place_value = to_text(candidate.target_canonical_value)
         if not aircraft_value or not place_value:
             continue
 
@@ -381,10 +366,10 @@ def _extract_person_like_relationships(
     fields: dict[str, Any],
 ) -> list[ExtractedRelationship]:
     """Build person-contact edges only when the field bundle is clear enough."""
-    full_name = _first_text_value(fields, "full_name", "name")
+    full_name = first_text_value(fields, "full_name", "name")
     usable_emails = _extract_usable_emails(fields)
     usable_phone_numbers = _extract_usable_phone_numbers(fields)
-    company_display = _first_text_value(fields, "company_name", "company")
+    company_display = first_text_value(fields, "company_name", "company")
     company_canonical = normalize_company_canonical(company_display)
 
     has_anchor = bool(full_name or usable_emails or usable_phone_numbers)
@@ -463,21 +448,21 @@ def _extract_certificate_domains(certificate: dict[str, Any]) -> list[str]:
     """Pull all usable domain strings out of one normalized certificate."""
     raw_domain_values: list[str] = []
 
-    common_name = normalize_text(certificate.get("common_name"))
+    common_name = to_text(certificate.get("common_name"))
     if common_name:
         raw_domain_values.append(common_name)
 
-    name_value = normalize_text(certificate.get("name_value"))
+    name_value = to_text(certificate.get("name_value"))
     if name_value:
         for item in name_value.splitlines():
-            cleaned_value = normalize_text(item)
+            cleaned_value = to_text(item)
             if not cleaned_value:
                 continue
             raw_domain_values.append(cleaned_value)
 
     normalized_domains: list[str] = []
     for raw_domain_value in raw_domain_values:
-        normalized_domain = normalize_domain_value(raw_domain_value)
+        normalized_domain = normalize_domain(raw_domain_value, strip_wildcard=True)
         if not normalized_domain:
             continue
         normalized_domains.append(normalized_domain)
@@ -489,7 +474,7 @@ def _extract_usable_emails(fields: dict[str, Any]) -> set[str]:
     """Return personal-looking email addresses from one field bundle."""
     usable_emails: set[str] = set()
 
-    for email_value in _list_text_values(fields, "emails", "email"):
+    for email_value in collect_text_values(fields, "emails", "email"):
         normalized_email = normalize_email(email_value)
         if not normalized_email:
             continue
@@ -509,7 +494,7 @@ def _extract_usable_phone_numbers(fields: dict[str, Any]) -> set[str]:
     """Return real-looking phone numbers from one field bundle."""
     usable_phone_numbers: set[str] = set()
 
-    for phone_value in _list_text_values(fields, "phone_numbers", "phones", "phone"):
+    for phone_value in collect_text_values(fields, "phone_numbers", "phones", "phone"):
         normalized_phone = normalize_phone_number(phone_value)
         if not normalized_phone:
             continue
@@ -522,35 +507,14 @@ def _extract_usable_phone_numbers(fields: dict[str, Any]) -> set[str]:
     return usable_phone_numbers
 
 
-def _first_text_value(fields: dict[str, Any], *keys: str) -> str:
-    """Return the first clean text value under the requested keys."""
-    for key in keys:
-        cleaned_value = normalize_text(fields.get(key))
-        if cleaned_value:
-            return cleaned_value
+RelationshipExtractor = Callable[[NormalizedRecord], RelationshipExtractionResult]
 
-    return ""
-
-
-def _list_text_values(fields: dict[str, Any], *keys: str) -> list[str]:
-    """Return one flat list of string values from string or list fields."""
-    collected_values: list[str] = []
-
-    for key in keys:
-        value = fields.get(key)
-        if isinstance(value, str):
-            cleaned_value = normalize_text(value)
-            if cleaned_value:
-                collected_values.append(cleaned_value)
-            continue
-
-        if not isinstance(value, list):
-            continue
-
-        for item in value:
-            cleaned_item = normalize_text(item)
-            if not cleaned_item:
-                continue
-            collected_values.append(cleaned_item)
-
-    return collected_values
+RELATIONSHIP_EXTRACTOR_BY_PROVIDER: dict[ProviderKind, RelationshipExtractor] = {
+    ProviderKind.IPINFO: _extract_ipinfo_relationships,
+    ProviderKind.CRT_SH: _extract_crt_sh_relationships,
+    ProviderKind.MANUAL_INPUT: _extract_manual_input_relationships,
+    ProviderKind.WEBHOOK: _extract_webhook_relationships,
+    ProviderKind.CSV_UPLOAD: _extract_csv_upload_relationships,
+    ProviderKind.NOMINATIM: build_no_results_result,
+    ProviderKind.OPENSKY: _extract_opensky_relationships,
+}

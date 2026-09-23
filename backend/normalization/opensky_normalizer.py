@@ -7,11 +7,11 @@ from typing import Any
 from backend.normalization.common import build_bad_raw_data_record
 from backend.normalization.common import build_passthrough_record
 from backend.normalization.common import build_success_record
-from backend.normalization.common import to_float_or_none
-from backend.normalization.common import to_text
 from backend.normalization.schemas import NormalizedRecord
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.storage import SavedRawRecord
+from backend.utils.text import to_float_or_none
+from backend.utils.text import to_string
 
 
 def normalize_opensky_record(saved_raw_record: SavedRawRecord) -> NormalizedRecord:
@@ -99,9 +99,9 @@ def _normalize_state_vectors(
 
         normalized_states.append(
             {
-                "icao24": to_text(state_vector[0]),
-                "callsign": to_text(state_vector[1]),
-                "origin_country": to_text(state_vector[2]),
+                "icao24": to_string(state_vector[0]),
+                "callsign": to_string(state_vector[1]),
+                "origin_country": to_string(state_vector[2]),
                 "longitude": to_float_or_none(state_vector[5]),
                 "latitude": to_float_or_none(state_vector[6]),
                 "baro_altitude": to_float_or_none(state_vector[7]),
@@ -126,6 +126,7 @@ def _build_no_results_record(saved_raw_record: SavedRawRecord) -> NormalizedReco
     return NormalizedRecord(
         provider=saved_raw_record.provider,
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=FetchStatus.NO_RESULTS,

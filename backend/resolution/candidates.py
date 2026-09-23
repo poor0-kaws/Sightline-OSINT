@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from backend.normalization.schemas import NormalizedEntity
@@ -10,8 +11,10 @@ from backend.resolution.schemas import EntityType
 from backend.resolution.schemas import MatchCandidate
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderKind
-from backend.utils.validation import is_valid_domain_name
-from backend.utils.validation import is_valid_ipv4_address
+from backend.utils.identifiers import normalize_domain
+from backend.utils.identifiers import normalize_ipv4
+from backend.utils.text import collect_text_values
+from backend.utils.text import first_text_value
 
 
 def build_match_candidates_from_normalized_record(normalized_record: NormalizedRecord) -> list[MatchCandidate]:
@@ -21,32 +24,16 @@ def build_match_candidates_from_normalized_record(normalized_record: NormalizedR
 
     candidates = _build_entity_exact_candidates(normalized_record)
 
-    if normalized_record.provider == ProviderKind.IPINFO:
-        candidates.extend(_build_ipinfo_candidates(normalized_record))
-        return _dedupe_candidates(candidates)
-
-    if normalized_record.provider == ProviderKind.CRT_SH:
-        candidates.extend(_build_crt_sh_candidates(normalized_record))
-        return _dedupe_candidates(candidates)
-
-    if normalized_record.provider == ProviderKind.MANUAL_INPUT:
-        candidates.extend(_build_manual_input_candidates(normalized_record))
-        return _dedupe_candidates(candidates)
-
-    if normalized_record.provider == ProviderKind.WEBHOOK:
-        candidates.extend(_build_webhook_candidates(normalized_record))
-        return _dedupe_candidates(candidates)
-
-    if normalized_record.provider == ProviderKind.CSV_UPLOAD:
-        candidates.extend(_build_csv_upload_candidates(normalized_record))
-        return _dedupe_candidates(candidates)
+    provider_candidate_builder = CANDIDATE_BUILDER_BY_PROVIDER.get(normalized_record.provider)
+    if provider_candidate_builder is not None:
+        candidates.extend(provider_candidate_builder(normalized_record))
 
     return _dedupe_candidates(candidates)
 
 
 def build_domain_candidate(*, record_id: str, domain_value: str, display_value: str = "") -> MatchCandidate | None:
     """Build one exact-match-ready domain candidate when the value is valid."""
-    canonical_domain = _normalize_domain_value(domain_value)
+    canonical_domain = normalize_domain(domain_value)
     if not canonical_domain:
         return None
 
@@ -61,7 +48,7 @@ def build_domain_candidate(*, record_id: str, domain_value: str, display_value: 
 
 def build_ip_candidate(*, record_id: str, ip_value: str, display_value: str = "") -> MatchCandidate | None:
     """Build one exact-match-ready IP candidate when the value is valid."""
-    canonical_ip = _normalize_ip_value(ip_value)
+    canonical_ip = normalize_ipv4(ip_value)
     if not canonical_ip:
         return None
 
@@ -79,13 +66,13 @@ def build_person_candidate(*, record_id: str, fields: dict[str, Any]) -> MatchCa
     if not isinstance(fields, dict):
         return None
 
-    full_name = _first_text_value(fields, "full_name", "name")
-    emails = _list_text_values(fields, "emails", "email")
-    phone_numbers = _list_text_values(fields, "phone_numbers", "phones", "phone")
-    company_name = _first_text_value(fields, "company_name", "company")
-    city = _first_text_value(fields, "city")
-    region = _first_text_value(fields, "region", "state")
-    country = _first_text_value(fields, "country")
+    full_name = first_text_value(fields, "full_name", "name")
+    emails = collect_text_values(fields, "emails", "email")
+    phone_numbers = collect_text_values(fields, "phone_numbers", "phones", "phone")
+    company_name = first_text_value(fields, "company_name", "company")
+    city = first_text_value(fields, "city")
+    region = first_text_value(fields, "region", "state")
+    country = first_text_value(fields, "country")
 
     if not any([full_name, emails, phone_numbers, company_name, city, region, country]):
         return None
@@ -287,77 +274,13 @@ def _extract_certificate_domains(certificate: dict[str, Any]) -> list[str]:
 
     normalized_domains: list[str] = []
     for domain_value in domain_values:
-        canonical_domain = _normalize_domain_value(domain_value)
+        canonical_domain = normalize_domain(domain_value)
         if not canonical_domain:
             continue
 
         normalized_domains.append(canonical_domain)
 
     return normalized_domains
-
-
-def _normalize_domain_value(value: str) -> str:
-    """Normalize a domain candidate into a stable exact-match value."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.strip().lower()
-    if not is_valid_domain_name(normalized_value):
-        return ""
-
-    return normalized_value
-
-
-def _normalize_ip_value(value: str) -> str:
-    """Normalize an IP candidate into a stable exact-match value."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.strip()
-    if not is_valid_ipv4_address(normalized_value):
-        return ""
-
-    return normalized_value
-
-
-def _first_text_value(fields: dict[str, Any], *keys: str) -> str:
-    """Return the first clean text value found under the given keys."""
-    for key in keys:
-        value = fields.get(key)
-        if not isinstance(value, str):
-            continue
-
-        cleaned_value = value.strip()
-        if cleaned_value:
-            return cleaned_value
-
-    return ""
-
-
-def _list_text_values(fields: dict[str, Any], *keys: str) -> list[str]:
-    """Return a flat list of clean text values from one or more field keys."""
-    collected_values: list[str] = []
-
-    for key in keys:
-        value = fields.get(key)
-        if isinstance(value, str):
-            cleaned_value = value.strip()
-            if cleaned_value:
-                collected_values.append(cleaned_value)
-            continue
-
-        if not isinstance(value, list):
-            continue
-
-        for item in value:
-            if not isinstance(item, str):
-                continue
-
-            cleaned_item = item.strip()
-            if cleaned_item:
-                collected_values.append(cleaned_item)
-
-    return collected_values
 
 
 def _dedupe_candidates(candidates: list[MatchCandidate]) -> list[MatchCandidate]:
@@ -419,3 +342,14 @@ def _display_value_or_default(display_value: str, default_value: str) -> str:
         return default_value
 
     return cleaned_value
+
+
+CandidateBuilder = Callable[[NormalizedRecord], list[MatchCandidate]]
+
+CANDIDATE_BUILDER_BY_PROVIDER: dict[ProviderKind, CandidateBuilder] = {
+    ProviderKind.IPINFO: _build_ipinfo_candidates,
+    ProviderKind.CRT_SH: _build_crt_sh_candidates,
+    ProviderKind.MANUAL_INPUT: _build_manual_input_candidates,
+    ProviderKind.WEBHOOK: _build_webhook_candidates,
+    ProviderKind.CSV_UPLOAD: _build_csv_upload_candidates,
+}

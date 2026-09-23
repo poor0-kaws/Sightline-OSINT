@@ -7,10 +7,10 @@ from typing import Any
 from backend.normalization.common import build_bad_raw_data_record
 from backend.normalization.common import build_passthrough_record
 from backend.normalization.common import build_success_record
-from backend.normalization.common import to_text
 from backend.normalization.schemas import NormalizedRecord
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.storage import SavedRawRecord
+from backend.utils.text import to_string
 
 
 def normalize_crt_sh_record(saved_raw_record: SavedRawRecord) -> NormalizedRecord:
@@ -36,12 +36,12 @@ def normalize_crt_sh_record(saved_raw_record: SavedRawRecord) -> NormalizedRecor
             )
 
         normalized_certificate = {
-            "common_name": to_text(item.get("common_name")),
-            "issuer_name": to_text(item.get("issuer_name")),
-            "not_before": to_text(item.get("not_before")),
+            "common_name": to_string(item.get("common_name")),
+            "issuer_name": to_string(item.get("issuer_name")),
+            "not_before": to_string(item.get("not_before")),
         }
 
-        name_value = to_text(item.get("name_value"))
+        name_value = to_string(item.get("name_value"))
         if name_value:
             normalized_certificate["name_value"] = name_value
 
@@ -55,6 +55,7 @@ def _build_no_results_record(saved_raw_record: SavedRawRecord) -> NormalizedReco
     return NormalizedRecord(
         provider=saved_raw_record.provider,
         source_type=saved_raw_record.source_type,
+        case_id=saved_raw_record.case_id,
         raw_record_id=saved_raw_record.record_id,
         query=saved_raw_record.query,
         status=FetchStatus.NO_RESULTS,

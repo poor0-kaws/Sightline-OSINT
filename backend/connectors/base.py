@@ -16,6 +16,7 @@ from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceKind
 from backend.settings import get_settings
+from backend.utils.http_client import HTTPClientError
 from backend.utils.time import utc_now_iso
 from backend.utils.values import clean_int
 from backend.utils.values import clean_text
@@ -155,3 +156,75 @@ class BaseSourceAdapter(ABC):
     def _timestamp(self) -> str:
         """Return a UTC timestamp string."""
         return utc_now_iso()
+
+    def _build_live_error_result(self, error: HTTPClientError, *, mode: str) -> dict[str, Any]:
+        """Turn a live provider failure into the shared outer wrapper payload."""
+        error_code = ErrorCode.PROVIDER_HTTP_ERROR
+        if error.failure_kind == "timeout":
+            error_code = ErrorCode.PROVIDER_TIMEOUT
+        elif error.failure_kind == "network_error":
+            error_code = ErrorCode.PROVIDER_NETWORK_ERROR
+        elif error.failure_kind == "invalid_json":
+            error_code = ErrorCode.PROVIDER_BAD_RESPONSE
+        elif error.status_code == 429:
+            error_code = ErrorCode.PROVIDER_RATE_LIMITED
+
+        return {
+            "status": FetchStatus.ERROR,
+            "raw_data": None,
+            "error": ProviderError(
+                code=error_code.value,
+                message=str(error),
+            ),
+            "metadata": {
+                "provider": self.provider.value,
+                "mode": mode,
+                "response_code": error.status_code or 0,
+            },
+        }
+
+    def _build_bad_response_result(
+        self,
+        *,
+        message: str,
+        mode: str,
+        response_code: int,
+    ) -> dict[str, Any]:
+        """Return a shared payload for malformed provider data."""
+        return {
+            "status": FetchStatus.ERROR,
+            "raw_data": None,
+            "error": ProviderError(
+                code=ErrorCode.PROVIDER_BAD_RESPONSE.value,
+                message=message,
+            ),
+            "metadata": {
+                "provider": self.provider.value,
+                "mode": mode,
+                "response_code": response_code,
+            },
+        }
+
+    def _build_no_results_result(
+        self,
+        *,
+        raw_data: Any,
+        mode: str,
+        response_code: int,
+        request_url: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a shared payload for a clean empty provider result."""
+        result_metadata: dict[str, Any] = {
+            "provider": self.provider.value,
+            "mode": mode,
+            "response_code": response_code,
+            "request_url": request_url,
+        }
+        result_metadata.update(metadata or {})
+
+        return {
+            "status": FetchStatus.NO_RESULTS,
+            "raw_data": raw_data,
+            "metadata": result_metadata,
+        }

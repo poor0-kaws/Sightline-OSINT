@@ -19,7 +19,6 @@ from backend.utils.validation import has_valid_bounding_box
 from backend.utils.validation import has_valid_coordinates
 from backend.utils.validation import get_crt_sh_query_error
 from backend.utils.validation import is_valid_aircraft_id
-from backend.utils.validation import is_valid_domain_name
 from backend.utils.validation import is_valid_ipv4_address
 from backend.utils.validation import is_valid_place_name
 
@@ -107,54 +106,6 @@ class IPinfoAdapter(BaseSourceAdapter):
             },
         }
 
-    def _build_live_error_result(self, error: HTTPClientError, *, mode: str) -> dict[str, Any]:
-        """Turn a live provider failure into the shared outer wrapper payload."""
-        error_code = ErrorCode.PROVIDER_HTTP_ERROR
-        if error.failure_kind == "timeout":
-            error_code = ErrorCode.PROVIDER_TIMEOUT
-        elif error.failure_kind == "network_error":
-            error_code = ErrorCode.PROVIDER_NETWORK_ERROR
-        elif error.failure_kind == "invalid_json":
-            error_code = ErrorCode.PROVIDER_BAD_RESPONSE
-        elif error.status_code == 429:
-            error_code = ErrorCode.PROVIDER_RATE_LIMITED
-
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=error_code.value,
-                message=str(error),
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": error.status_code or 0,
-            },
-        }
-
-    def _build_bad_response_result(
-        self,
-        *,
-        message: str,
-        mode: str,
-        response_code: int,
-    ) -> dict[str, Any]:
-        """Return a shared payload for malformed provider data."""
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=ErrorCode.PROVIDER_BAD_RESPONSE.value,
-                message=message,
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": response_code,
-            },
-        }
-
 
 class CrtShAdapter(BaseSourceAdapter):
     """Adapter for certificate search results."""
@@ -223,17 +174,13 @@ class CrtShAdapter(BaseSourceAdapter):
             )
 
         if not response.data:
-            return {
-                "status": FetchStatus.NO_RESULTS,
-                "raw_data": response.data,
-                "metadata": {
-                    "provider": self.provider.value,
-                    "mode": "search",
-                    "response_code": response.status_code,
-                    "request_url": response.url,
-                    "result_count": 0,
-                },
-            }
+            return self._build_no_results_result(
+                raw_data=response.data,
+                mode="search",
+                response_code=response.status_code,
+                request_url=response.url,
+                metadata={"result_count": 0},
+            )
 
         return {
             "status": FetchStatus.SUCCESS,
@@ -244,54 +191,6 @@ class CrtShAdapter(BaseSourceAdapter):
                 "response_code": response.status_code,
                 "request_url": response.url,
                 "result_count": len(response.data),
-            },
-        }
-
-    def _build_live_error_result(self, error: HTTPClientError, *, mode: str) -> dict[str, Any]:
-        """Turn a live provider failure into the shared outer wrapper payload."""
-        error_code = ErrorCode.PROVIDER_HTTP_ERROR
-        if error.failure_kind == "timeout":
-            error_code = ErrorCode.PROVIDER_TIMEOUT
-        elif error.failure_kind == "network_error":
-            error_code = ErrorCode.PROVIDER_NETWORK_ERROR
-        elif error.failure_kind == "invalid_json":
-            error_code = ErrorCode.PROVIDER_BAD_RESPONSE
-        elif error.status_code == 429:
-            error_code = ErrorCode.PROVIDER_RATE_LIMITED
-
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=error_code.value,
-                message=str(error),
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": error.status_code or 0,
-            },
-        }
-
-    def _build_bad_response_result(
-        self,
-        *,
-        message: str,
-        mode: str,
-        response_code: int,
-    ) -> dict[str, Any]:
-        """Return a shared payload for malformed provider data."""
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=ErrorCode.PROVIDER_BAD_RESPONSE.value,
-                message=message,
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": response_code,
             },
         }
 
@@ -412,17 +311,13 @@ class OpenSkyAdapter(BaseSourceAdapter):
 
         states = response_data.get("states")
         if states is None:
-            return {
-                "status": FetchStatus.NO_RESULTS,
-                "raw_data": response_data,
-                "metadata": {
-                    "provider": self.provider.value,
-                    "mode": mode,
-                    "response_code": response_code,
-                    "request_url": request_url,
-                    "state_count": 0,
-                },
-            }
+            return self._build_no_results_result(
+                raw_data=response_data,
+                mode=mode,
+                response_code=response_code,
+                request_url=request_url,
+                metadata={"state_count": 0},
+            )
 
         if not isinstance(states, list):
             return self._build_bad_response_result(
@@ -440,17 +335,13 @@ class OpenSkyAdapter(BaseSourceAdapter):
                 )
 
         if not states:
-            return {
-                "status": FetchStatus.NO_RESULTS,
-                "raw_data": response_data,
-                "metadata": {
-                    "provider": self.provider.value,
-                    "mode": mode,
-                    "response_code": response_code,
-                    "request_url": request_url,
-                    "state_count": 0,
-                },
-            }
+            return self._build_no_results_result(
+                raw_data=response_data,
+                mode=mode,
+                response_code=response_code,
+                request_url=request_url,
+                metadata={"state_count": 0},
+            )
 
         return {
             "status": FetchStatus.SUCCESS,
@@ -461,54 +352,6 @@ class OpenSkyAdapter(BaseSourceAdapter):
                 "response_code": response_code,
                 "request_url": request_url,
                 "state_count": len(states),
-            },
-        }
-
-    def _build_live_error_result(self, error: HTTPClientError, *, mode: str) -> dict[str, Any]:
-        """Turn a live provider failure into the shared outer wrapper payload."""
-        error_code = ErrorCode.PROVIDER_HTTP_ERROR
-        if error.failure_kind == "timeout":
-            error_code = ErrorCode.PROVIDER_TIMEOUT
-        elif error.failure_kind == "network_error":
-            error_code = ErrorCode.PROVIDER_NETWORK_ERROR
-        elif error.failure_kind == "invalid_json":
-            error_code = ErrorCode.PROVIDER_BAD_RESPONSE
-        elif error.status_code == 429:
-            error_code = ErrorCode.PROVIDER_RATE_LIMITED
-
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=error_code.value,
-                message=str(error),
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": error.status_code or 0,
-            },
-        }
-
-    def _build_bad_response_result(
-        self,
-        *,
-        message: str,
-        mode: str,
-        response_code: int,
-    ) -> dict[str, Any]:
-        """Return a shared payload for malformed provider data."""
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=ErrorCode.PROVIDER_BAD_RESPONSE.value,
-                message=message,
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": response_code,
             },
         }
 
@@ -631,53 +474,5 @@ class NominatimAdapter(BaseSourceAdapter):
                 "mode": "search",
                 "response_code": response.status_code,
                 "request_url": response.url,
-            },
-        }
-
-    def _build_live_error_result(self, error: HTTPClientError, *, mode: str) -> dict[str, Any]:
-        """Turn a live provider failure into the shared outer wrapper payload."""
-        error_code = ErrorCode.PROVIDER_HTTP_ERROR
-        if error.failure_kind == "timeout":
-            error_code = ErrorCode.PROVIDER_TIMEOUT
-        elif error.failure_kind == "network_error":
-            error_code = ErrorCode.PROVIDER_NETWORK_ERROR
-        elif error.failure_kind == "invalid_json":
-            error_code = ErrorCode.PROVIDER_BAD_RESPONSE
-        elif error.status_code == 429:
-            error_code = ErrorCode.PROVIDER_RATE_LIMITED
-
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=error_code.value,
-                message=str(error),
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": error.status_code or 0,
-            },
-        }
-
-    def _build_bad_response_result(
-        self,
-        *,
-        message: str,
-        mode: str,
-        response_code: int,
-    ) -> dict[str, Any]:
-        """Return a shared payload for malformed provider data."""
-        return {
-            "status": FetchStatus.ERROR,
-            "raw_data": None,
-            "error": ProviderError(
-                code=ErrorCode.PROVIDER_BAD_RESPONSE.value,
-                message=message,
-            ),
-            "metadata": {
-                "provider": self.provider.value,
-                "mode": mode,
-                "response_code": response_code,
             },
         }

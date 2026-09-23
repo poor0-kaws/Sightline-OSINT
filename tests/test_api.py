@@ -9,7 +9,6 @@ import httpx
 import pytest
 
 from backend.api import build_app
-from backend.schemas.ingestion import ProviderKind
 from backend.settings import Settings
 from backend.services.ingestion_service import IngestionService
 

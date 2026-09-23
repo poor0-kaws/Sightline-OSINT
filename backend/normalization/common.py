@@ -65,22 +65,3 @@ def build_bad_raw_data_record(
         normalized_data=None,
         metadata=dict(saved_raw_record.metadata),
     )
-
-
-def to_text(value: object) -> str:
-    """Turn a maybe-string field into a clean string."""
-    if value is None:
-        return ""
-
-    return str(value).strip()
-
-
-def to_float_or_none(value: object) -> float | None:
-    """Turn a maybe-number field into a float when possible."""
-    try:
-        if value is None:
-            return None
-
-        return float(value)
-    except (TypeError, ValueError):
-        return None

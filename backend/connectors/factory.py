@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from backend.connectors.api_connector import CrtShAdapter
 from backend.connectors.api_connector import IPinfoAdapter
 from backend.connectors.api_connector import NominatimAdapter

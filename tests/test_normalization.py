@@ -234,6 +234,7 @@ def test_opensky_no_results_normalizes_into_empty_shared_payload() -> None:
     saved_raw_record = SavedRawRecord(
         record_id="raw-open-3",
         source_id="source-open-3",
+        case_id="case-non-default",
         provider=ProviderKind.OPENSKY,
         source_type=SourceKind.API,
         query={"lamin": 39.0, "lamax": 40.0, "lomin": -87.0, "lomax": -86.0},
@@ -248,6 +249,7 @@ def test_opensky_no_results_normalizes_into_empty_shared_payload() -> None:
 
     assert normalized_record.status == FetchStatus.NO_RESULTS
     assert normalized_record.error is None
+    assert normalized_record.case_id == "case-non-default"
     assert normalized_record.normalized_data["states"] == []
     assert normalized_record.normalized_data["bounds"]["lamin"] == 39.0
 
@@ -589,6 +591,7 @@ def test_crt_sh_no_results_normalizes_into_empty_certificates() -> None:
     saved_raw_record = SavedRawRecord(
         record_id="raw-crt-2",
         source_id="source-crt-2",
+        case_id="case-non-default",
         provider=ProviderKind.CRT_SH,
         source_type=SourceKind.SCRAPER,
         query="example.com",
@@ -603,6 +606,7 @@ def test_crt_sh_no_results_normalizes_into_empty_certificates() -> None:
 
     assert normalized_record.status == FetchStatus.NO_RESULTS
     assert normalized_record.error is None
+    assert normalized_record.case_id == "case-non-default"
     assert normalized_record.normalized_data == {"certificates": []}
 
 

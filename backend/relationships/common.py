@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from backend.normalization.schemas import NormalizedRecord
@@ -15,8 +14,9 @@ from backend.schemas.error_codes import ErrorCode
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
+from backend.utils.text import slugify
+from backend.utils.text import to_text
 from backend.utils.validation import is_valid_domain_name
-from backend.utils.validation import is_valid_ipv4_address
 
 
 ROLE_EMAIL_PREFIXES = {
@@ -33,7 +33,6 @@ PLACEHOLDER_EMAIL_LOCAL_PARTS = {"placeholder", "test"}
 PLACEHOLDER_EMAIL_DOMAINS = {"example.com"}
 PHONE_PLACEHOLDER_VALUES = {"0000000000", "1111111111", "1234567890"}
 BUSINESS_SUFFIXES = {"co", "corp", "corporation", "inc", "incorporated", "llc", "ltd", "limited"}
-NON_ALPHANUMERIC_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 def build_passthrough_result(normalized_record: NormalizedRecord) -> RelationshipExtractionResult:
@@ -128,7 +127,7 @@ def build_entity_reference(
     display_value: str,
 ) -> EntityReference:
     """Create one easy-to-read entity reference."""
-    entity_id = f"{record_scope}:{entity_type.value}:{_slugify_id_part(canonical_value or display_value)}"
+    entity_id = f"{record_scope}:{entity_type.value}:{slugify(canonical_value or display_value)}"
     return EntityReference(
         entity_id=entity_id,
         entity_type=entity_type,
@@ -159,20 +158,8 @@ def build_relationship(
     )
 
 
-def normalize_text(value: Any) -> str:
-    """Return one clean trimmed string, or an empty string."""
-    if not isinstance(value, str):
-        return ""
-
-    cleaned_value = value.strip()
-    if not cleaned_value:
-        return ""
-
-    return cleaned_value
-
-
 def normalize_email(value: Any) -> str:
-    """Return one clean email when it passes basic safety checks."""
+    """Return one clean email when it passes the strict domain check."""
     if not isinstance(value, str):
         return ""
 
@@ -237,14 +224,9 @@ def is_placeholder_phone_number(phone_value: str) -> bool:
     return phone_value in PHONE_PLACEHOLDER_VALUES
 
 
-def normalize_company_display(value: Any) -> str:
-    """Return a readable company label."""
-    return normalize_text(value)
-
-
 def normalize_company_canonical(value: Any) -> str:
     """Return a simple company key for graph nodes."""
-    cleaned_value = normalize_text(value).lower()
+    cleaned_value = to_text(value).lower()
     if not cleaned_value:
         return ""
 
@@ -262,9 +244,9 @@ def normalize_company_canonical(value: Any) -> str:
 
 def normalize_location_values(city_value: Any, region_value: Any, country_value: Any) -> tuple[str, str]:
     """Return one clean location display + canonical key when the location is usable."""
-    city = normalize_text(city_value)
-    region = normalize_text(region_value)
-    country = normalize_text(country_value)
+    city = to_text(city_value)
+    region = to_text(region_value)
+    country = to_text(country_value)
 
     if not city or not country:
         return "", ""
@@ -277,52 +259,6 @@ def normalize_location_values(city_value: Any, region_value: Any, country_value:
     display_value = ", ".join(display_parts)
     canonical_value = "|".join(part.lower() for part in display_parts)
     return display_value, canonical_value
-
-
-def normalize_domain_value(value: Any) -> str:
-    """Return a clean domain value, stripping a wildcard prefix when needed."""
-    if not isinstance(value, str):
-        return ""
-
-    candidate = value.strip().lower()
-    if not candidate:
-        return ""
-
-    if candidate.startswith("*."):
-        candidate = candidate[2:]
-
-    if not is_valid_domain_name(candidate):
-        return ""
-
-    return candidate
-
-
-def normalize_ip_value(value: Any) -> str:
-    """Return a clean IPv4 value."""
-    if not isinstance(value, str):
-        return ""
-
-    candidate = value.strip()
-    if not candidate:
-        return ""
-
-    if not is_valid_ipv4_address(candidate):
-        return ""
-
-    return candidate
-
-
-def _slugify_id_part(value: str) -> str:
-    """Turn a readable value into a stable id-safe fragment."""
-    cleaned_value = value.strip().lower()
-    if not cleaned_value:
-        return "unknown"
-
-    slug_value = NON_ALPHANUMERIC_PATTERN.sub("-", cleaned_value).strip("-")
-    if not slug_value:
-        return "unknown"
-
-    return slug_value
 
 
 def _get_safe_provider(normalized_record: NormalizedRecord) -> ProviderKind:

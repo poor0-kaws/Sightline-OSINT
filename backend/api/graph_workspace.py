@@ -8,10 +8,6 @@ from typing import Any
 from backend.graph import GraphNode
 from backend.graph import GraphRelationship
 from backend.graph import GraphSnapshot
-from backend.graph import GraphWriteService
-from backend.graph import InMemoryGraphRepository
-from backend.normalization import normalize_saved_raw_record
-from backend.relationships import extract_relationships_from_normalized_record
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.storage import SavedRawRecord
 from backend.settings import Settings
@@ -44,33 +40,6 @@ ENTITY_TIERS = {
     "location": "Geospatial",
     "aircraft": "Aviation",
 }
-
-
-def build_graph_workspace_payload(
-    *,
-    settings: Settings,
-    saved_raw_records: list[SavedRawRecord],
-) -> dict[str, Any]:
-    """Turn saved raw records into the graph payload consumed by the React app."""
-    repository = InMemoryGraphRepository()
-    graph_writer = GraphWriteService(repository)
-    write_results = []
-
-    for saved_raw_record in saved_raw_records:
-        normalized_record = normalize_saved_raw_record(saved_raw_record)
-        relationship_result = extract_relationships_from_normalized_record(normalized_record)
-        write_result = graph_writer.write_graph_artifacts(normalized_record, relationship_result)
-        write_results.append(write_result)
-
-    graph_nodes = _sorted_nodes(repository)
-    graph_relationships = _sorted_relationships(repository)
-
-    return build_graph_workspace_payload_from_snapshot(
-        settings=settings,
-        saved_raw_records=saved_raw_records,
-        graph_snapshot=GraphSnapshot(nodes=graph_nodes, relationships=graph_relationships),
-        write_results=write_results,
-    )
 
 
 def build_graph_workspace_payload_from_snapshot(
@@ -213,22 +182,6 @@ def _build_activity(
         )
 
     return activity_items
-
-
-def _sorted_nodes(repository: InMemoryGraphRepository) -> list[GraphNode]:
-    """Return graph nodes in a stable frontend order."""
-    return [
-        repository.nodes_by_key[key]
-        for key in sorted(repository.nodes_by_key)
-    ]
-
-
-def _sorted_relationships(repository: InMemoryGraphRepository) -> list[GraphRelationship]:
-    """Return graph relationships in a stable frontend order."""
-    return [
-        repository.relationships_by_key[key]
-        for key in sorted(repository.relationships_by_key)
-    ]
 
 
 def _sort_graph_nodes(graph_nodes: list[GraphNode]) -> list[GraphNode]:

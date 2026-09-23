@@ -61,7 +61,7 @@ class GraphWriteService:
 
         graph_relationships = self._collect_graph_relationships(
             relationship_result,
-            case_id=normalized_record.case_id,
+            normalized_record=normalized_record,
         )
         if isinstance(graph_relationships, GraphWriteResult):
             return graph_relationships
@@ -115,8 +115,7 @@ class GraphWriteService:
         for entity in normalized_record.entities:
             graph_node = self._graph_node_from_normalized_entity(
                 entity,
-                normalized_record.raw_record_id,
-                normalized_record.case_id,
+                normalized_record,
             )
             if isinstance(graph_node, GraphWriteResult):
                 return graph_node
@@ -125,8 +124,7 @@ class GraphWriteService:
         for relationship in relationship_result.relationships:
             from_node = self._graph_node_from_entity_reference(
                 relationship.from_entity,
-                normalized_record.raw_record_id,
-                normalized_record.case_id,
+                normalized_record,
             )
             if isinstance(from_node, GraphWriteResult):
                 return from_node
@@ -137,8 +135,7 @@ class GraphWriteService:
 
             to_node = self._graph_node_from_entity_reference(
                 relationship.to_entity,
-                normalized_record.raw_record_id,
-                normalized_record.case_id,
+                normalized_record,
             )
             if isinstance(to_node, GraphWriteResult):
                 return to_node
@@ -150,7 +147,7 @@ class GraphWriteService:
         self,
         relationship_result: RelationshipExtractionResult,
         *,
-        case_id: str,
+        normalized_record: NormalizedRecord,
     ) -> list[GraphRelationship] | GraphWriteResult:
         """Build one unique graph relationship list."""
         relationships_by_key: dict[str, GraphRelationship] = {}
@@ -158,7 +155,7 @@ class GraphWriteService:
         for relationship in relationship_result.relationships:
             graph_relationship = self._graph_relationship_from_extracted_relationship(
                 relationship,
-                case_id=case_id,
+                normalized_record=normalized_record,
             )
             if isinstance(graph_relationship, GraphWriteResult):
                 return graph_relationship
@@ -172,8 +169,7 @@ class GraphWriteService:
     def _graph_node_from_normalized_entity(
         self,
         entity: NormalizedEntity,
-        raw_record_id: str,
-        case_id: str,
+        normalized_record: NormalizedRecord,
     ) -> GraphNode | GraphWriteResult:
         """Turn one normalized entity into one graph node."""
         entity_type = self._canonical_graph_entity_type(entity.entity_type)
@@ -182,15 +178,15 @@ class GraphWriteService:
 
         if not entity_type or not canonical_value:
             return self._build_graph_entity_error(
-                raw_record_id,
+                normalized_record,
                 "Normalized entities need entity_type and canonical_value.",
             )
 
         metadata = dict(entity.metadata)
-        metadata["case_id"] = self._clean_case_id(case_id)
+        metadata["case_id"] = self._clean_case_id(normalized_record.case_id)
 
         return GraphNode(
-            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=case_id),
+            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=normalized_record.case_id),
             entity_type=entity_type,
             canonical_value=canonical_value,
             display_value=display_value,
@@ -200,8 +196,7 @@ class GraphWriteService:
     def _graph_node_from_entity_reference(
         self,
         entity_reference: EntityReference,
-        raw_record_id: str,
-        case_id: str,
+        normalized_record: NormalizedRecord,
     ) -> GraphNode | GraphWriteResult:
         """Turn one relationship endpoint into one graph node."""
         entity_type = self._canonical_graph_entity_type(entity_reference.entity_type)
@@ -210,24 +205,24 @@ class GraphWriteService:
 
         if not entity_type or not canonical_value:
             return self._build_error_result(
-                self._minimal_record(raw_record_id),
+                normalized_record,
                 code=ErrorCode.GRAPH_BAD_RELATIONSHIP,
                 message="Relationship endpoints need entity_type and canonical_value before graph writes.",
             )
 
         return GraphNode(
-            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=case_id),
+            entity_key=self._build_entity_key(entity_type, canonical_value, case_id=normalized_record.case_id),
             entity_type=entity_type,
             canonical_value=canonical_value,
             display_value=display_value,
-            metadata={"case_id": self._clean_case_id(case_id)},
+            metadata={"case_id": self._clean_case_id(normalized_record.case_id)},
         )
 
     def _graph_relationship_from_extracted_relationship(
         self,
         relationship: ExtractedRelationship,
         *,
-        case_id: str,
+        normalized_record: NormalizedRecord,
     ) -> GraphRelationship | GraphWriteResult:
         """Turn one extracted relationship into one graph edge."""
         relationship_type = self._clean_text(relationship.relationship_type)
@@ -238,11 +233,12 @@ class GraphWriteService:
 
         if not relationship_type or not from_type or not from_value or not to_type or not to_value:
             return self._build_error_result(
-                self._minimal_record(relationship.evidence_record_id),
+                normalized_record,
                 code=ErrorCode.GRAPH_BAD_RELATIONSHIP,
                 message="Relationships need type and both endpoints before graph writes.",
             )
 
+        case_id = normalized_record.case_id
         from_entity_key = self._build_entity_key(from_type, from_value, case_id=case_id)
         to_entity_key = self._build_entity_key(to_type, to_value, case_id=case_id)
         relationship_key = f"{relationship_type}|{from_entity_key}|{to_entity_key}"
@@ -299,10 +295,10 @@ class GraphWriteService:
             metadata=metadata,
         )
 
-    def _build_graph_entity_error(self, raw_record_id: str, message: str) -> GraphWriteResult:
+    def _build_graph_entity_error(self, normalized_record: NormalizedRecord, message: str) -> GraphWriteResult:
         """Return one graph entity validation error."""
         return self._build_error_result(
-            self._minimal_record(raw_record_id),
+            normalized_record,
             code=ErrorCode.GRAPH_BAD_ENTITY,
             message=message,
         )
@@ -342,19 +338,6 @@ class GraphWriteService:
             nodes_written=0,
             relationships_written=0,
             metadata=metadata,
-        )
-
-    def _minimal_record(self, raw_record_id: str) -> NormalizedRecord:
-        """Build a tiny helper record for internal error reporting."""
-        return NormalizedRecord(
-            provider=ProviderKind.IPINFO,
-            source_type=normalized_record_source_type_fallback(),
-            case_id="default",
-            raw_record_id=raw_record_id,
-            query=None,
-            status=FetchStatus.SUCCESS,
-            normalized_data=None,
-            metadata={},
         )
 
     def _build_entity_key(self, entity_type: str, canonical_value: str, *, case_id: str) -> str:
@@ -441,10 +424,3 @@ class GraphWriteService:
             return ""
 
         return provider.strip()
-
-
-def normalized_record_source_type_fallback():
-    """Return a safe fallback source type without importing more than needed."""
-    from backend.schemas.ingestion import SourceKind
-
-    return SourceKind.API

@@ -10,8 +10,11 @@ from backend.resolution.schemas import MatchReason
 from backend.resolution.schemas import PersonRecord
 from backend.resolution.schemas import ResolutionDecision
 from backend.resolution.schemas import ResolutionResult
-from backend.utils.validation import is_valid_domain_name
-from backend.utils.validation import is_valid_ipv4_address
+from backend.utils.identifiers import normalize_domain
+from backend.utils.identifiers import normalize_email
+from backend.utils.identifiers import normalize_ipv4
+from backend.utils.text import normalize_free_text
+from backend.utils.text import to_text
 
 
 EMAIL_CONFIDENCE = 15
@@ -153,8 +156,8 @@ def _resolve_domain_candidates(
     right_candidate: MatchCandidate,
 ) -> ResolutionResult:
     """Resolve two domain candidates using exact canonical comparison."""
-    left_domain = _normalize_domain_value(left_candidate.canonical_value)
-    right_domain = _normalize_domain_value(right_candidate.canonical_value)
+    left_domain = normalize_domain(left_candidate.canonical_value)
+    right_domain = normalize_domain(right_candidate.canonical_value)
     if not left_domain or not right_domain:
         return _build_no_match_result(
             left_record_id=left_candidate.record_id,
@@ -180,8 +183,8 @@ def _resolve_ip_candidates(
     right_candidate: MatchCandidate,
 ) -> ResolutionResult:
     """Resolve two IP candidates using exact canonical comparison."""
-    left_ip = _normalize_ip_value(left_candidate.canonical_value)
-    right_ip = _normalize_ip_value(right_candidate.canonical_value)
+    left_ip = normalize_ipv4(left_candidate.canonical_value)
+    right_ip = normalize_ipv4(right_candidate.canonical_value)
     if not left_ip or not right_ip:
         return _build_no_match_result(
             left_record_id=left_candidate.record_id,
@@ -259,13 +262,13 @@ def _build_person_record_from_candidate(candidate: MatchCandidate) -> PersonReco
     attributes = candidate.attributes if isinstance(candidate.attributes, dict) else {}
     return PersonRecord(
         record_id=candidate.record_id,
-        full_name=_to_text(attributes.get("full_name")),
+        full_name=to_text(attributes.get("full_name")),
         emails=_to_text_list(attributes.get("emails")),
         phone_numbers=_to_text_list(attributes.get("phone_numbers")),
-        company_name=_to_text(attributes.get("company_name")),
-        city=_to_text(attributes.get("city")),
-        region=_to_text(attributes.get("region")),
-        country=_to_text(attributes.get("country")),
+        company_name=to_text(attributes.get("company_name")),
+        city=to_text(attributes.get("city")),
+        region=to_text(attributes.get("region")),
+        country=to_text(attributes.get("country")),
     )
 
 
@@ -305,10 +308,10 @@ def _score_company_match(left_record: PersonRecord, right_record: PersonRecord) 
 
 def _score_location_match(left_record: PersonRecord, right_record: PersonRecord) -> MatchReason | None:
     """Award confidence when city and country agree after normalization."""
-    left_city = _normalize_text(left_record.city)
-    right_city = _normalize_text(right_record.city)
-    left_country = _normalize_text(left_record.country)
-    right_country = _normalize_text(right_record.country)
+    left_city = normalize_free_text(left_record.city)
+    right_city = normalize_free_text(right_record.city)
+    left_country = normalize_free_text(left_record.country)
+    right_country = normalize_free_text(right_record.country)
     if not left_city or not right_city or not left_country or not right_country:
         return None
 
@@ -353,7 +356,7 @@ def _extract_usable_emails(email_values: list[str]) -> set[str]:
     usable_emails: set[str] = set()
 
     for email_value in email_values:
-        normalized_email = _normalize_email(email_value)
+        normalized_email = normalize_email(email_value)
         if not normalized_email:
             continue
 
@@ -385,28 +388,9 @@ def _extract_usable_phone_numbers(phone_values: list[str]) -> set[str]:
     return usable_phone_numbers
 
 
-def _normalize_email(value: str) -> str:
-    """Normalize one email address into a clean comparable string."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.strip().lower()
-    if not normalized_value or "@" not in normalized_value:
-        return ""
-
-    local_part, separator, domain_part = normalized_value.partition("@")
-    if not separator or not local_part or not domain_part:
-        return ""
-
-    if "." not in domain_part:
-        return ""
-
-    return f"{local_part}@{domain_part}"
-
-
 def _normalize_phone_number(value: str) -> str:
     """Normalize a phone number into digits only."""
-    digits = re.sub(r"\D+", "", _normalize_text(value))
+    digits = re.sub(r"\D+", "", normalize_free_text(value))
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
 
@@ -418,12 +402,12 @@ def _normalize_phone_number(value: str) -> str:
 
 def _normalize_name(value: str) -> str:
     """Normalize one person name into a stable comparable string."""
-    return _normalize_text(value)
+    return normalize_free_text(value)
 
 
 def _normalize_company_name(value: str) -> str:
     """Normalize one company name into a stable comparable string."""
-    normalized_value = _normalize_text(value)
+    normalized_value = normalize_free_text(value)
     if not normalized_value:
         return ""
 
@@ -432,52 +416,6 @@ def _normalize_company_name(value: str) -> str:
         tokens.pop()
 
     return " ".join(tokens).strip()
-
-
-def _normalize_domain_value(value: str) -> str:
-    """Normalize a domain into a stable exact-match string."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.strip().lower()
-    if not is_valid_domain_name(normalized_value):
-        return ""
-
-    return normalized_value
-
-
-def _normalize_ip_value(value: str) -> str:
-    """Normalize an IPv4 address into a stable exact-match string."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.strip()
-    if not is_valid_ipv4_address(normalized_value):
-        return ""
-
-    return normalized_value
-
-
-def _normalize_text(value: str) -> str:
-    """Normalize free text by lowercasing and collapsing punctuation/spacing."""
-    if not isinstance(value, str):
-        return ""
-
-    normalized_value = value.lower().strip()
-    if not normalized_value:
-        return ""
-
-    normalized_value = re.sub(r"[^a-z0-9]+", " ", normalized_value)
-    normalized_value = re.sub(r"\s+", " ", normalized_value)
-    return normalized_value.strip()
-
-
-def _to_text(value: object) -> str:
-    """Return a safe stripped string value."""
-    if not isinstance(value, str):
-        return ""
-
-    return value.strip()
 
 
 def _to_text_list(value: object) -> list[str]:

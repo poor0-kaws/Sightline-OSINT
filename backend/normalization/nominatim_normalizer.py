@@ -7,10 +7,10 @@ from typing import Any
 from backend.normalization.common import build_bad_raw_data_record
 from backend.normalization.common import build_passthrough_record
 from backend.normalization.common import build_success_record
-from backend.normalization.common import to_float_or_none
 from backend.normalization.schemas import NormalizedRecord
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.storage import SavedRawRecord
+from backend.utils.text import to_float_or_none
 
 
 def normalize_nominatim_record(saved_raw_record: SavedRawRecord) -> NormalizedRecord:

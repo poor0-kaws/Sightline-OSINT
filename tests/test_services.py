@@ -10,7 +10,6 @@ from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceConfig
 from backend.schemas.ingestion import SourceRequest
-from backend.schemas.ingestion import SourceKind
 from backend.services.ingestion_service import IngestionService
 from backend.storage.raw_storage_repository import FileRawStorageRepository
 

@@ -273,6 +273,7 @@ def test_graph_write_service_rejects_broken_relationship_endpoints_before_writin
     normalized_record = NormalizedRecord(
         provider=ProviderKind.MANUAL_INPUT,
         source_type=SourceKind.MANUAL,
+        case_id="case-graph-error",
         raw_record_id="graph-raw-4",
         query={},
         status=FetchStatus.SUCCESS,
@@ -317,6 +318,8 @@ def test_graph_write_service_rejects_broken_relationship_endpoints_before_writin
     assert result.status == FetchStatus.ERROR
     assert result.error is not None
     assert result.error.code == "graph_bad_relationship"
+    assert result.provider == ProviderKind.MANUAL_INPUT
+    assert result.raw_record_id == "graph-raw-4"
     assert len(repository.nodes_by_key) == 0
     assert len(repository.relationships_by_key) == 0
 

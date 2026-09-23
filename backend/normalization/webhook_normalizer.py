@@ -5,10 +5,10 @@ from __future__ import annotations
 from backend.normalization.common import build_bad_raw_data_record
 from backend.normalization.common import build_passthrough_record
 from backend.normalization.common import build_success_record
-from backend.normalization.common import to_text
 from backend.normalization.schemas import NormalizedRecord
 from backend.schemas.ingestion import FetchStatus
 from backend.schemas.storage import SavedRawRecord
+from backend.utils.text import to_string
 
 
 def normalize_webhook_record(saved_raw_record: SavedRawRecord) -> NormalizedRecord:
@@ -36,7 +36,7 @@ def normalize_webhook_record(saved_raw_record: SavedRawRecord) -> NormalizedReco
         )
 
     normalized_data = {
-        "event_type": to_text(saved_raw_record.raw_data.get("event_type")),
+        "event_type": to_string(saved_raw_record.raw_data.get("event_type")),
         "payload": payload,
     }
     return build_success_record(saved_raw_record, normalized_data=normalized_data)

@@ -14,7 +14,6 @@ from backend.schemas.ingestion import ProviderError
 from backend.schemas.ingestion import ProviderKind
 from backend.schemas.ingestion import RawProviderResponse
 from backend.schemas.ingestion import SourceKind
-from backend.schemas.ingestion import SourceRequest
 from backend.schemas.storage import SavedRawRecord
 from backend.storage import save_raw_response_safely
 from backend.utils.time import utc_now_iso

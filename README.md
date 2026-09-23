@@ -38,6 +38,19 @@ cd ..
 uvicorn backend.main:app --reload
 ```
 
+## Frontend Checks
+
+The React app lives in `frontend/`. Run these from the `frontend` directory:
+
+```bash
+npm run lint       # eslint over frontend/src
+npm run typecheck  # tsc --noEmit (checks JavaScript via checkJs)
+npm run build      # rebuild backend/api/static/react
+```
+
+The frontend source is split into `src/components/` (panels, graph canvas) and
+`src/lib/` (API client, provider list, form helpers, graph helpers).
+
 Open:
 
 ```text

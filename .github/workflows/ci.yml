@@ -24,6 +24,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: frontend
+      - name: Typecheck frontend
+        run: npm run typecheck
+        working-directory: frontend
       - name: Build frontend
         run: npm run build
         working-directory: frontend
